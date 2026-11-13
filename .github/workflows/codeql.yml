@@ -26,21 +26,18 @@ jobs:
           - language: python
             os: ubuntu-latest
             build-mode: none
+          # No build: CodeQL's build tracing does not work on current macOS runners
+          # (macOS 27, and arm64 tracing in general). The macOS runner still provides
+          # the platform headers the C code includes.
           - language: c-cpp
             os: macos-latest
-            build-mode: manual
+            build-mode: none
     steps:
       - uses: actions/checkout@v4
-      - name: install libusb
-        if: matrix.build-mode == 'manual'
-        run: brew install libusb
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-      - name: build
-        if: matrix.build-mode == 'manual'
-        run: make -C macos
       - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
