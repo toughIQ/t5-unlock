@@ -40,6 +40,7 @@ DRIVER_SENSE = 0x08
 SAMSUNG_VID = "04e8"
 T5_LOCKED_PID = "61f6"
 T5_UNLOCKED_PID = "61f5"
+SYS_BLOCK = "/sys/block"
 SETUP_MAX_BYTES = 1 << 30  # the setup disk is tens of MB; anything big is not it
 
 BLOCK = 512
@@ -257,7 +258,7 @@ def usb_ids(sysdev):
 
 def t5_disks():
     found = []
-    for blk in sorted(glob.glob("/sys/block/sd*")):
+    for blk in sorted(glob.glob(f"{SYS_BLOCK}/sd*")):
         try:
             vendor = pathlib.Path(f"{blk}/device/vendor").read_text().strip()
             model = pathlib.Path(f"{blk}/device/model").read_text().strip()

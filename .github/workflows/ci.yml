@@ -29,6 +29,7 @@ jobs:
       - run: ruff check linux
       - run: python linux/test_offline.py
       - run: python linux/test_mock_drive.py
+      - run: python linux/test_flow.py
 
   macos:
     runs-on: macos-latest

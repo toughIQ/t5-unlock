@@ -52,8 +52,9 @@ The emojis below are reference data for the style, not decoration of this file.
 ## Code and tests
 
 - `linux/t5-unlock.py`: Python 3 standard library only, must stay compatible with
-  Python 3.9. Checks: `ruff check linux`, `python3 linux/test_offline.py` and
-  `python3 linux/test_mock_drive.py`.
+  Python 3.9. Checks: `ruff check linux`, `python3 linux/test_offline.py`,
+  `python3 linux/test_mock_drive.py` and `python3 linux/test_flow.py` (drive lookup on a
+  fake sysfs tree, prompts and exit codes).
 - `macos/t5-unlock-mac.c`: C with libusb. Checks: `make -C macos check` runs the
   self-test, a strict build with warnings as errors, an AddressSanitizer and
   UndefinedBehaviorSanitizer build, and cppcheck.

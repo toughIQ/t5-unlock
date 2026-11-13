@@ -29,7 +29,8 @@ get to their own data when the vendor's tool no longer runs. Keep it that way.
   safety rules. If you change the unlock flow, extend them; never loosen them to make
   a change pass.
 - ✅ Keep the checks passing. None of them needs a drive:
-  - `ruff check linux`, `python3 linux/test_offline.py` and `python3 linux/test_mock_drive.py`
+  - `ruff check linux`, `python3 linux/test_offline.py`,
+    `python3 linux/test_mock_drive.py` and `python3 linux/test_flow.py`
   - `make -C macos check` (self-test including the mock-drive safety tests, strict
     warnings as errors, AddressSanitizer and UndefinedBehaviorSanitizer, cppcheck).
     Needs `brew install libusb cppcheck`.

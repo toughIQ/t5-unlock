@@ -79,6 +79,7 @@ Verified on **one** setup. Treat everything else as unverified.
 | ✅ macOS tool | macOS 27.2, Apple Silicon (M5 Pro), libusb 1.0.30, drive on a USB 3 port |
 | ✅ Linux tool | Fedora 44 (aarch64, in a UTM virtual machine with USB passthrough), Python 3 standard library only |
 | ✅ Safety rules | Mock-drive tests in CI check that a rejected password never leads to an unlock, nothing is retried, and unverified drives get no password data. They run without a drive. |
+| ✅ Linux lookup and prompts | Tests run the drive lookup against a fake sysfs tree and check the prompts, exit codes and messages of the unlock command. No drive needed. |
 | ⚠️ Pending | Both tools were restructured after their real-drive runs (to make the mock tests possible). Behaviour is meant to be identical, and the offline and mock tests pass, but a fresh run on a real drive has not been done yet. |
 | ⚠️ Not verified | Other T5 units or firmware, T3, T7, T9 and other drives, Windows, Intel Macs, other macOS versions, other Linux distributions, USB 2 links |
 
