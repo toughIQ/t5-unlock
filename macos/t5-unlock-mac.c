@@ -154,6 +154,7 @@ typedef struct {
     uint8_t sense[64];
     int sense_len;
     int data_len;
+    int cmd_sent;            /* the command IU was handed to libusb */
 } uas_result;
 
 /* Pure parser for the UAS status IU. Fills status and sense only for a complete, well-formed IU
@@ -179,7 +180,7 @@ static double now_s(void) {
 /* One UAS command. write=0: data IN up to want bytes into buf. write=1: send BLOCK bytes from buf. */
 static uas_result uas_run(libusb_context *ctx, libusb_device_handle *h, const uint8_t cdb[16], uint16_t tag,
                           int write, uint8_t *buf, int want) {
-    uas_result res = {0, 0xff, {0}, 0, 0};
+    uas_result res = {0, 0xff, {0}, 0, 0, 0};
     uint8_t iu[32] = {0}, data[1024] = {0}, st[1024] = {0};
     iu[0] = 1;
     iu[2] = (uint8_t)(tag >> 8);
@@ -222,6 +223,7 @@ static uas_result uas_run(libusb_context *ctx, libusb_device_handle *h, const ui
     if (s[0].done && s[0].t->status == LIBUSB_TRANSFER_COMPLETED)
         (void)parse_status_iu(st, s[0].t->actual_length, tag, &res);
     res.data_len = s[1].t->actual_length;
+    res.cmd_sent = s[2].submitted;
     res.transport_ok = !failed && res.scsi_status != 0xff && s[2].done && s[2].t->actual_length == 32 &&
                        res.data_len == (write ? BLOCK : want);
     if (!write && res.transport_ok) memcpy(buf, data, (size_t)want);
@@ -248,7 +250,7 @@ static int read_log(session_t *s, uint8_t log, uint8_t block[BLOCK]) {
     return r.scsi_status == 0 || (r.scsi_status == 2 && ata_sense_ok(r.sense, r.sense_len));
 }
 
-typedef enum { WR_OK, WR_REJECTED, WR_ERROR } write_result;
+typedef enum { WR_OK, WR_REJECTED, WR_ERROR, WR_NOT_SENT } write_result;
 
 static write_result write_log(session_t *s, uint8_t log, const uint8_t block[BLOCK]) {
     uint8_t cdb[16], copy[BLOCK];
@@ -256,6 +258,7 @@ static write_result write_log(session_t *s, uint8_t log, const uint8_t block[BLO
     memcpy(copy, block, BLOCK);
     uas_result r = s->run(s->ctx, s->h, cdb, next_tag(s), 1, copy, BLOCK);
     zero(copy, sizeof copy);
+    if (!r.cmd_sent) return WR_NOT_SENT;
     if (r.transport_ok && r.scsi_status == 2 && ata_sense_ok(r.sense, r.sense_len)) return WR_OK;
     if (r.transport_ok && r.scsi_status == 2 && validation_rejected(r.sense, r.sense_len)) return WR_REJECTED;
     return WR_ERROR;
@@ -429,7 +432,8 @@ static const char *usb_check_device(libusb_device **list, ssize_t n, libusb_devi
     return NULL;
 }
 
-/* Looks at the USB bus without opening the device, so it can run before the password prompt. */
+/* Does not open the T5 for transfers, so it can run before the password prompt. libusb_init itself
+ * reads the descriptors of all USB devices. */
 static void usb_precheck(void) {
     libusb_context *ctx = NULL;
     libusb_device **list = NULL;
@@ -453,25 +457,25 @@ static unsigned char stream_eps[3] = {EP_STATUS_IN, EP_DATA_IN, EP_DATA_OUT};
 
 static int usb_open(usb_t *u) {
     memset(u, 0, sizeof *u);
-    if (libusb_init(&u->ctx) != 0) { fputs("libusb_init failed.\n", stderr); return 0; }
+    if (libusb_init(&u->ctx) != 0) { fputs("libusb_init failed. Nothing was sent.\n", stderr); return 0; }
     libusb_set_option(u->ctx, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_ERROR);
     ssize_t n = libusb_get_device_list(u->ctx, &u->list);
     libusb_device *t = NULL;
     const char *problem = usb_check_device(u->list, n, &t);
     if (problem) { fprintf(stderr, "%s Nothing was sent.\n", problem); return 0; }
     int r = libusb_open(t, &u->h);
-    if (r != 0) { fprintf(stderr, "Cannot open the T5: %s\n", libusb_error_name(r)); return 0; }
+    if (r != 0) { fprintf(stderr, "Cannot open the T5: %s. Nothing was sent.\n", libusb_error_name(r)); return 0; }
     r = libusb_detach_kernel_driver(u->h, 0);
     if (r == 0) u->captured = 1;
-    else if (r != LIBUSB_ERROR_NOT_FOUND) { fprintf(stderr, "Cannot detach the macOS driver: %s\n", libusb_error_name(r)); return 0; }
+    else if (r != LIBUSB_ERROR_NOT_FOUND) { fprintf(stderr, "Cannot detach the macOS driver: %s. Nothing was sent.\n", libusb_error_name(r)); return 0; }
     r = libusb_claim_interface(u->h, 0);
-    if (r != 0) { fprintf(stderr, "Cannot claim the USB interface: %s\n", libusb_error_name(r)); return 0; }
+    if (r != 0) { fprintf(stderr, "Cannot claim the USB interface: %s. Nothing was sent.\n", libusb_error_name(r)); return 0; }
     u->claimed = 1;
     u->captured = 1;
     r = libusb_set_interface_alt_setting(u->h, 0, 1);
-    if (r != 0) { fprintf(stderr, "Cannot switch the T5 to UAS mode: %s\n", libusb_error_name(r)); return 0; }
+    if (r != 0) { fprintf(stderr, "Cannot switch the T5 to UAS mode: %s. Nothing was sent.\n", libusb_error_name(r)); return 0; }
     r = libusb_alloc_streams(u->h, 2, stream_eps, 3);
-    if (r < 2) { fprintf(stderr, "Cannot allocate USB streams (%d).\n", r); return 0; }
+    if (r < 2) { fprintf(stderr, "Cannot allocate USB streams (%d). Nothing was sent.\n", r); return 0; }
     u->streams = 1;
     return 1;
 }
@@ -501,7 +505,7 @@ static dev_info require_locked(void) {
     case D_LOCKED: return d;
     case D_UNLOCKED:
         if (disk_mounted(d.disk)) printf("The T5 is already unlocked (/dev/%s). Nothing to do.\n", d.disk);
-        else printf("The T5 is already unlocked (/dev/%s), but not mounted. Run: diskutil mountDisk /dev/%s\n", d.disk, d.disk);
+        else printf("The T5 is already unlocked (/dev/%s). If you do not see it in Finder, run: diskutil mountDisk /dev/%s\n", d.disk, d.disk);
         exit(0);
     case D_ABSENT: die("No Samsung Portable SSD T5 found. Plug it in and wait for the T5_SETUP volume.", 2);
     case D_AMBIGUOUS: die("More than one T5 found. Connect only one. Nothing was sent.", 2);
@@ -522,8 +526,8 @@ static int wait_for_unlocked(const char *serial, dev_info *out) {
 }
 
 /* After a drive was captured and not unlocked: say so only if it did not come back by itself. */
-static void report_if_dropped(void) {
-    for (int i = 0; i < 10; i++) {
+static void report_if_dropped(int seconds) {
+    for (int i = 0; i < 2 * seconds; i++) {
         if (find_t5().state == D_LOCKED) return;
         struct timespec ts = {0, 500000000};
         nanosleep(&ts, NULL);
@@ -536,10 +540,13 @@ static int do_probe(void) {
     printf("Found the locked T5 (setup disk /dev/%s).\n", d.disk);
     usb_precheck();
     printf("Unmounting setup disk %s.\n", d.disk);
-    if (run_diskutil("unmountDisk", d.disk) != 0) die("Could not unmount the setup disk. Nothing was sent.", 2);
+    int unmount_failed = run_diskutil("unmountDisk", d.disk) != 0;
+    if (interrupted) die("Interrupted. Nothing was sent.", 130);
+    if (unmount_failed) die("Could not unmount the setup disk. Nothing was sent.", 2);
     usb_t u;
-    int rc = 3;
+    int rc = 2;
     if (usb_open(&u)) {
+        rc = 3;
         session_t s = {u.ctx, u.h, 0, uas_run};
         uint8_t status[BLOCK] = {0};
         const char *problem = NULL;
@@ -555,7 +562,7 @@ static int do_probe(void) {
     int captured = u.captured;
     usb_back_to_bulk_only(&u);
     usb_close(&u);
-    if (captured) report_if_dropped();
+    if (captured) report_if_dropped(15);
     return rc;
 }
 
@@ -563,7 +570,7 @@ static int do_probe(void) {
  * retries. Every command is sent at most once and nothing is sent after the first problem. */
 typedef enum {
     UO_UNLOCKED, UO_UNLOCK_ERROR, UO_NOT_T5, UO_NO_STATUS, UO_BAD_STATUS, UO_NO_CHALLENGE,
-    UO_REJECTED, UO_VALIDATION_UNCLEAR, UO_INTERRUPTED, UO_NO_FRESH_CHALLENGE
+    UO_REJECTED, UO_VALIDATION_UNCLEAR, UO_INTERRUPTED, UO_NO_FRESH_CHALLENGE, UO_UNLOCKED_NO_RELINK
 } unlock_outcome;
 
 static unlock_outcome unlock_sequence(session_t *s, const uint8_t *pw, size_t len, const char **detail,
@@ -583,8 +590,11 @@ static unlock_outcome unlock_sequence(session_t *s, const uint8_t *pw, size_t le
     if (interrupted) { out = UO_INTERRUPTED; goto end; }
     if (!read_log(s, LOG_CHALLENGE, challenge) || !make_payload(pw, len, challenge, block)) { out = UO_NO_FRESH_CHALLENGE; goto end; }
     if (write_log(s, LOG_UNLOCK, block) != WR_OK) { out = UO_UNLOCK_ERROR; goto end; }
+    if (interrupted) { out = UO_UNLOCKED_NO_RELINK; goto end; }
     memset(block, 0, BLOCK);
-    *relink_clean = write_log(s, LOG_RELINK, block) == WR_OK;
+    w = write_log(s, LOG_RELINK, block);
+    if (w == WR_NOT_SENT) { out = UO_UNLOCKED_NO_RELINK; goto end; }
+    *relink_clean = w == WR_OK;
     out = UO_UNLOCKED;
 end:
     zero(block, sizeof block);
@@ -598,9 +608,10 @@ static int do_unlock(void) {
     usb_precheck();
     uint8_t pw[PASSWORD_MAX + 2] = {0};
     char buf1[128] = {0}, buf2[128] = {0};
+    errno = 0;
     int got = readpassphrase("T5 DRIVE password (not your Mac password): ", buf1, sizeof buf1, RPP_REQUIRE_TTY) != NULL &&
               readpassphrase("Repeat the T5 DRIVE password: ", buf2, sizeof buf2, RPP_REQUIRE_TTY) != NULL;
-    if (interrupted) {
+    if (interrupted || (!got && errno == EINTR)) {
         zero(buf1, sizeof buf1);
         zero(buf2, sizeof buf2);
         die("Interrupted. Nothing was sent.", 130);
@@ -622,19 +633,28 @@ static int do_unlock(void) {
     zero(buf1, sizeof buf1);
 
     printf("Unmounting setup disk %s.\n", d.disk);
-    if (run_diskutil("unmountDisk", d.disk) != 0) { zero(pw, sizeof pw); die("Could not unmount the setup disk. Nothing was sent.", 2); }
+    int unmount_failed = run_diskutil("unmountDisk", d.disk) != 0;
+    if (interrupted) { zero(pw, sizeof pw); die("Interrupted. Nothing was sent.", 130); }
+    if (unmount_failed) { zero(pw, sizeof pw); die("Could not unmount the setup disk. Nothing was sent.", 2); }
 
     usb_t u;
-    int rc = 3;
+    int rc = 2;
     int sent_unlock = 0;
     if (usb_open(&u)) {
+        rc = 3;
         session_t s = {u.ctx, u.h, 0, uas_run};
         const char *detail = "";
         int relink_clean = 1;
-        unlock_outcome o = unlock_sequence(&s, pw, len, &detail, &relink_clean);
-        if (o == UO_UNLOCKED || o == UO_UNLOCK_ERROR || o == UO_INTERRUPTED || o == UO_NO_FRESH_CHALLENGE)
+        int ran = !interrupted;
+        unlock_outcome o = UO_INTERRUPTED;
+        if (ran) o = unlock_sequence(&s, pw, len, &detail, &relink_clean);
+        if (ran && (o == UO_UNLOCKED || o == UO_UNLOCK_ERROR || o == UO_INTERRUPTED || o == UO_NO_FRESH_CHALLENGE ||
+                    o == UO_UNLOCKED_NO_RELINK))
             puts("Password accepted by the drive.");
-        switch (o) {
+        if (interrupted && (o == UO_NOT_T5 || o == UO_NO_STATUS || o == UO_NO_CHALLENGE)) {
+            fputs("Interrupted. No password was sent.\n", stderr);
+            rc = 130;
+        } else switch (o) {
         case UO_NOT_T5: fputs("INQUIRY did not identify a Samsung Portable SSD T5. No password was sent.\n", stderr); break;
         case UO_NO_STATUS: fputs("Could not read the drive status. No password was sent.\n", stderr); break;
         case UO_BAD_STATUS: fprintf(stderr, "Status check failed: %s. No password was sent.\n", detail); break;
@@ -647,11 +667,19 @@ static int do_unlock(void) {
         case UO_VALIDATION_UNCLEAR:
             fputs("Password validation failed at transport level (outcome unclear). No unlock command was sent. Do not retry blindly.\n", stderr);
             break;
-        case UO_INTERRUPTED: fputs("Interrupted before the unlock command. Nothing unlocked.\n", stderr); rc = 130; break;
+        case UO_INTERRUPTED:
+            fputs(ran ? "Interrupted before the unlock command. Nothing unlocked.\n" : "Interrupted. Nothing was sent.\n", stderr);
+            rc = 130;
+            break;
         case UO_NO_FRESH_CHALLENGE: fputs("Could not read a fresh challenge. No unlock command was sent.\n", stderr); break;
         case UO_UNLOCK_ERROR:
             fputs("Unlock did not report success. No relink was sent. Unplug and replug the T5 (this locks it again), "
                   "then run the tool once more if you are sure of the password.\n", stderr);
+            break;
+        case UO_UNLOCKED_NO_RELINK:
+            fputs("Unlock sent. The relink was not sent, so the full disk will not appear by itself. "
+                  "Unplug and replug the drive (this locks it again) and unlock once more.\n", stderr);
+            if (interrupted) rc = 130;
             break;
         case UO_UNLOCKED:
             puts("Unlock sent, then relink sent (a disconnect here is expected).");
@@ -665,14 +693,15 @@ static int do_unlock(void) {
     int captured = u.captured;
     usb_close(&u);
     if (!sent_unlock) {
-        if (captured) report_if_dropped();
+        if (captured) report_if_dropped(5);
         return rc;
     }
 
     dev_info after;
     if (!wait_for_unlocked(d.serial, &after)) {
         if (interrupted) { fputs("Interrupted.\n", stderr); return 130; }
-        fputs("The unlocked disk did not show up within 60 s. Replug the T5 and check Disk Utility; it stays unlocked only while powered.\n", stderr);
+        fputs("The unlocked disk did not show up within 60 s. The drive may still be unlocked: check Finder or Disk Utility "
+              "before you unplug it, because unplugging locks it again.\n", stderr);
         return 5;
     }
     printf("Unlocked T5 appeared: /dev/%s, %.1f GiB.\n", after.disk, (double)after.size / (1024.0 * 1024.0 * 1024.0));
@@ -689,8 +718,9 @@ static int do_unlock(void) {
     if (!mounted && interrupted) { fputs("Interrupted.\n", stderr); return 130; }
     if (mounted) puts("The volume is mounted.");
     else
-        printf("The drive is unlocked but not mounted yet. If macOS asks to allow the accessory, click Allow. "
-               "Otherwise run: diskutil mountDisk /dev/%s\n", after.disk);
+        printf("The drive is unlocked, but no mounted volume was found on /dev/%s (APFS volumes can appear under another disk). "
+               "If you do not see it in Finder, click Allow if macOS asks to allow the accessory, or run: diskutil mountDisk /dev/%s\n",
+               after.disk, after.disk);
     return 0;
 }
 
@@ -703,12 +733,12 @@ static void hex32(const uint8_t *p, char out[65]) { for (int i = 0; i < 32; i++)
 
 /* ---------- fake drive for the safety-rule tests ---------- */
 
-enum { FK_OK, FK_REJECT, FK_GARBAGE, FK_TRANSPORT };
+enum { FK_OK, FK_REJECT, FK_GARBAGE, FK_TRANSPORT, FK_NOT_SENT };
 enum { C_INQUIRY = 0x100, C_READ = 0x200, C_WRITE = 0x300 };
 
 static struct {
     int validate, unlock, relink;            /* F_* behaviour per write */
-    int bad_version, empty_challenge, wrong_inquiry;
+    int bad_version, empty_challenge, wrong_inquiry, interrupt_after_unlock;
     int cmds[32], ncmds;                     /* C_INQUIRY, C_READ|log, C_WRITE|log */
     int leaked, malformed;                   /* password in clear / payload outside 0x20..0x3f */
     const uint8_t *pw;
@@ -726,8 +756,9 @@ static uas_result fake_run(libusb_context *ctx, libusb_device_handle *h, const u
     static const uint8_t ok_sense[22] = {0x72, 0x01, 0x00, 0x1D, 0, 0, 0, 14, 0x09, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x50};
     static const uint8_t rej_sense[22] = {0x72, 0x0B, 0x00, 0x00, 0, 0, 0, 14, 0x09, 0x0C, 0, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x51};
     static const uint8_t bad_sense[22] = {0x70, 0x05, 0, 0, 0, 0, 0, 10};
-    uas_result r = {0, 0xff, {0}, 0, 0};
+    uas_result r = {0, 0xff, {0}, 0, 0, 0};
     (void)ctx; (void)h; (void)tag; (void)write;
+    r.cmd_sent = 1;
     if (fake.ncmds >= 32) { fake.malformed = 1; return r; }
     if (cdb[0] == 0x12) {
         fake.cmds[fake.ncmds++] = C_INQUIRY;
@@ -759,8 +790,10 @@ static uas_result fake_run(libusb_context *ctx, libusb_device_handle *h, const u
     if (fake.pw && fake.pwlen && memmem(buf, BLOCK, fake.pw, fake.pwlen)) fake.leaked = 1;
     for (int i = 0; i < BLOCK; i++)
         if (buf[i] && (log == LOG_RELINK || i < 0x20 || i >= 0x40)) fake.malformed = 1;
+    if (log == LOG_UNLOCK && fake.interrupt_after_unlock) interrupted = 1;
     int how = log == LOG_VALIDATE ? fake.validate : log == LOG_UNLOCK ? fake.unlock : fake.relink;
     r.data_len = BLOCK;
+    if (how == FK_NOT_SENT) { r.cmd_sent = 0; return r; }
     if (how == FK_TRANSPORT) return r;
     r.transport_ok = 1;
     r.scsi_status = 2;
@@ -828,6 +861,18 @@ static void safety_tests(void) {
     check(o == UO_UNLOCKED && fake_count(C_WRITE | LOG_RELINK) == 1, "mock: failed relink not fatal, not retried");
 
     fake_reset(pw, pl);
+    fake.interrupt_after_unlock = 1;
+    o = run_fake(pw, pl);
+    interrupted = 0;
+    check(o == UO_UNLOCKED_NO_RELINK && fake_count(C_WRITE | LOG_UNLOCK) == 1 && fake_count(C_WRITE | LOG_RELINK) == 0,
+          "mock: Ctrl-C between unlock and relink sends no relink and reports it");
+
+    fake_reset(pw, pl);
+    fake.relink = FK_NOT_SENT;
+    o = run_fake(pw, pl);
+    check(o == UO_UNLOCKED_NO_RELINK, "mock: relink that was never submitted is not reported as sent");
+
+    fake_reset(pw, pl);
     fake.wrong_inquiry = 1;
     o = run_fake(pw, pl);
     check(o == UO_NOT_T5 && fake.ncmds == 1, "mock: wrong drive gets only an inquiry");
@@ -851,7 +896,7 @@ static void safety_tests(void) {
 
 static void status_iu_tests(void) {
     uint8_t st[96] = {0};
-    uas_result r = {0, 0xff, {0}, 0, 0};
+    uas_result r = {0, 0xff, {0}, 0, 0, 0};
     const uint8_t sense[22] = {0x72, 0x01, 0x00, 0x1D, 0, 0, 0, 14, 0x09, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x50};
 
     st[0] = 3; st[3] = 1;
