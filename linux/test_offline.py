@@ -2,6 +2,7 @@
 """Offline checks for t5-unlock.py against the upstream project's test vectors.
 No drive needed. Run: python3 test_offline.py"""
 
+import ctypes
 import importlib.util
 import os
 
@@ -55,9 +56,11 @@ status = bytearray(512)
 status[0x20:0x24] = b"PSSD"
 status[0x24:0x28] = (0x00010103).to_bytes(4, "little")
 assert t5.check_status(bytes(status)) is None
-s2 = bytearray(status); s2[0x28] = 1
+s2 = bytearray(status)
+s2[0x28] = 1
 assert t5.check_status(bytes(s2))
-s3 = bytearray(status); s3[0x24] = 4
+s3 = bytearray(status)
+s3[0x24] = 4
 assert t5.check_status(bytes(s3))
 assert t5.check_status(None)
 
@@ -74,11 +77,11 @@ rejected = bytes([0x72, 0x0B, 0x00, 0x00, 0, 0, 0, 14,
 assert t5.validation_rejected(rejected)
 assert not t5.ata_sense_ok(rejected)
 assert not t5.validation_rejected(ok_sense)
-err = bytearray(ok_sense); err[21] = 0x51
+err = bytearray(ok_sense)
+err[21] = 0x51
 assert not t5.ata_sense_ok(bytes(err))
 
 # SG_IO header layout on 64-bit Linux is 88 bytes.
-import ctypes
 assert ctypes.sizeof(t5.SgIoHdr) == 88, ctypes.sizeof(t5.SgIoHdr)
 
 print("PASS: hash vectors, challenge fields, guards, status, CDBs, sense parsing, SG_IO layout")

@@ -51,10 +51,15 @@ The emojis below are reference data for the style, not decoration of this file.
 
 ## Code and tests
 
-- `linux/t5-unlock.py`: Python 3 standard library only. Test: `python3 linux/test_offline.py`.
-- `macos/t5-unlock-mac.c`: C with libusb. Test: `make -C macos selftest`.
-- Both self-tests run without a drive. Keep them passing and extend them with any
-  change to hashing, command bytes, password rules or reply parsing.
+- `linux/t5-unlock.py`: Python 3 standard library only, must stay compatible with
+  Python 3.9. Checks: `ruff check linux` and `python3 linux/test_offline.py`.
+- `macos/t5-unlock-mac.c`: C with libusb. Checks: `make -C macos check` runs the
+  self-test, a strict build with warnings as errors, an AddressSanitizer and
+  UndefinedBehaviorSanitizer build, and cppcheck.
+- Docs: `markdownlint-cli2` (config in `.markdownlint-cli2.jsonc`) and a link check.
+- None of the checks needs a drive. Keep them passing and extend the self-tests with
+  any change to hashing, command bytes, password rules or reply parsing.
+- CI lives in `.github/workflows/` (tests, CodeQL). Run `actionlint` after editing it.
 - Hardware runs (`--probe`, `--unlock`) are done by the drive's owner, who types the
   password. Agents never receive or store the password.
 

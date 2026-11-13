@@ -1,5 +1,9 @@
 macos/t5-unlock-mac
 macos/t5-unlock-mac-static
+macos/t5-unlock-mac-strict
+macos/t5-unlock-mac-san
+macos/*.dSYM/
+.ruff_cache/
 __pycache__/
 *.pyc
 .DS_Store

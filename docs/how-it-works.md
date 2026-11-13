@@ -41,7 +41,7 @@ sent. There is no loop and no retry anywhere.
 
 The 32-byte payload sits at offset 0x20 of an otherwise all-zero 512-byte block:
 
-```
+```text
 first   = SHA256( password zero-padded to 32 bytes  ||  challenge[0x30:0x40] )
 payload = SHA256( first || challenge[0x00:0x20] )
 ```
@@ -52,7 +52,7 @@ conversion.
 
 ## 🧑‍💻 Command bytes
 
-```
+```text
 read : 85 08 2e 00 d5 00 01 00 <log> 00 4f 00 c2 00 b0 00
 write: 85 0a 26 00 d6 00 01 00 <log> 00 4f 00 c2 00 b0 00
 ```

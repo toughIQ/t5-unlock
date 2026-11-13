@@ -25,8 +25,12 @@ get to their own data when the vendor's tool no longer runs. Keep it that way.
 ## 🔧 Rules for changes
 
 - 🛡️ Do not weaken the checks that run before a password is sent.
-- ✅ Keep the offline tests passing: `python3 linux/test_offline.py` and
-  `make -C macos selftest`.
+- ✅ Keep the checks passing. None of them needs a drive:
+  - `ruff check linux` and `python3 linux/test_offline.py`
+  - `make -C macos check` (self-test, strict warnings as errors, AddressSanitizer and
+    UndefinedBehaviorSanitizer, cppcheck). Needs `brew install libusb cppcheck`.
+  - `markdownlint-cli2` for the docs
+  - GitHub Actions runs all of these, plus CodeQL, on every push and pull request.
 - 🔒 Do not include drive contents, serial numbers or personal data in issues or commits.
 - 📝 Use plain, honest wording in docs. Say what was verified and what was not.
 - 📝 Follow the documentation style in [AGENTS.md](AGENTS.md): emojis in human-facing

@@ -27,6 +27,7 @@ import getpass
 import glob
 import hashlib
 import os
+import pathlib
 import subprocess
 import sys
 import time
@@ -211,7 +212,8 @@ def check_status(block):
         return "status block has no PSSD signature"
     version = int.from_bytes(block[0x24:0x28], "little")
     if version != VERIFIED_VERSION:
-        return f"protocol version {version:#010x} differs from the verified {VERIFIED_VERSION:#010x}"
+        return (f"protocol version {version:#010x} differs "
+                f"from the verified {VERIFIED_VERSION:#010x}")
     if block[0x28] & 1:
         return "drive reports a different hash scheme (flag at 0x28)"
     return None
@@ -248,7 +250,7 @@ def usb_ids(sysdev):
     while path != "/":
         vid, pid = os.path.join(path, "idVendor"), os.path.join(path, "idProduct")
         if os.path.exists(vid) and os.path.exists(pid):
-            return open(vid).read().strip(), open(pid).read().strip()
+            return pathlib.Path(vid).read_text().strip(), pathlib.Path(pid).read_text().strip()
         path = os.path.dirname(path)
     return None, None
 
@@ -257,9 +259,9 @@ def t5_disks():
     found = []
     for blk in sorted(glob.glob("/sys/block/sd*")):
         try:
-            vendor = open(f"{blk}/device/vendor").read().strip()
-            model = open(f"{blk}/device/model").read().strip()
-            size = int(open(f"{blk}/size").read()) * 512
+            vendor = pathlib.Path(f"{blk}/device/vendor").read_text().strip()
+            model = pathlib.Path(f"{blk}/device/model").read_text().strip()
+            size = int(pathlib.Path(f"{blk}/size").read_text()) * 512
         except OSError:
             continue
         if vendor == "Samsung" and model == "Portable SSD T5":
@@ -282,7 +284,8 @@ def find_locked():
 
 
 def unmount_all(dev):
-    mounted = [line.split()[0] for line in open("/proc/mounts") if line.startswith(dev)]
+    with open("/proc/mounts") as mounts:
+        mounted = [line.split()[0] for line in mounts if line.startswith(dev)]
     for part in mounted:
         print(f"Unmounting {part}")
         if subprocess.run(["umount", part]).returncode != 0:
@@ -324,7 +327,8 @@ def unlock(dev):
         die("Passwords do not match. Nothing was sent.")
     del again
     if not check_password(pw):
-        die("Password must be 1-32 bytes of printable ASCII (no spaces) or Cyrillic. Nothing was sent.")
+        die("Password must be 1-32 bytes of printable ASCII (no spaces) or Cyrillic. "
+            "Nothing was sent.")
 
     unmount_all(dev)
     fd = os.open(dev, os.O_RDWR | os.O_NONBLOCK)
@@ -367,7 +371,8 @@ def unlock(dev):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--probe", action="store_true", help="read-only check, no password")
     mode.add_argument("--unlock", action="store_true", help="one unlock attempt")

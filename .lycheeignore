@@ -1,0 +1,2 @@
+# The repo checks its own workflow badges, which only exist after the push.
+^https://github\.com/toughIQ/t5-unlock/actions/

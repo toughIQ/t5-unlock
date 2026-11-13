@@ -98,7 +98,7 @@ static int make_payload(const uint8_t *pw, size_t len, const uint8_t *challenge,
 }
 
 static uint32_t status_version(const uint8_t *s) {
-    return s[0x24] | s[0x25] << 8 | s[0x26] << 16 | (uint32_t)s[0x27] << 24;
+    return (uint32_t)s[0x24] | (uint32_t)s[0x25] << 8 | (uint32_t)s[0x26] << 16 | (uint32_t)s[0x27] << 24;
 }
 
 /* Returns NULL when the status block matches the verified protocol. */
@@ -556,7 +556,7 @@ done:
 static int fails;
 static void check(int ok, const char *what) { if (!ok) { printf("FAIL: %s\n", what); fails++; } }
 
-static void hex32(const uint8_t *p, char out[65]) { for (int i = 0; i < 32; i++) sprintf(out + 2 * i, "%02x", p[i]); }
+static void hex32(const uint8_t *p, char out[65]) { for (int i = 0; i < 32; i++) snprintf(out + 2 * i, 3, "%02x", p[i]); }
 
 static int do_selftest(void) {
     uint8_t ch[BLOCK], chr[BLOCK], out[BLOCK];
@@ -621,7 +621,7 @@ static int do_selftest(void) {
     check(memcmp(cdb, want_w, 16) == 0, "write CDB bytes");
 
     uint8_t ok_sense[22] = {0x72, 0x01, 0x00, 0x1D, 0, 0, 0, 14, 0x09, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x50};
-    uint8_t rej[22] = {0x72, 0x0B, 0x00, 0x00, 0, 0, 0, 14, 0x09, 0x0C, 0, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x51};
+    const uint8_t rej[22] = {0x72, 0x0B, 0x00, 0x00, 0, 0, 0, 14, 0x09, 0x0C, 0, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x51};
     check(ata_sense_ok(ok_sense, 22), "ATA success sense");
     check(validation_rejected(rej, 22), "wrong-password sense");
     check(!ata_sense_ok(rej, 22), "rejection is not success");

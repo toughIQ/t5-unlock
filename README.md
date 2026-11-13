@@ -1,5 +1,8 @@
 # 🔓 t5-unlock
 
+[![tests](https://github.com/toughIQ/t5-unlock/actions/workflows/ci.yml/badge.svg)](https://github.com/toughIQ/t5-unlock/actions/workflows/ci.yml)
+[![codeql](https://github.com/toughIQ/t5-unlock/actions/workflows/codeql.yml/badge.svg)](https://github.com/toughIQ/t5-unlock/actions/workflows/codeql.yml)
+
 Unlock your own password-protected **Samsung Portable SSD T5** on current macOS
 (Apple Silicon) and on Linux, now that the vendor's old unlock software no longer runs.
 
@@ -113,6 +116,11 @@ challenge the drive provides. Full description, command bytes and reply formats:
 This was only tested on one T5. Other Samsung models may use a related protocol, but
 that is unproven here, and other vendors differ. If you want to extend it, read
 [CONTRIBUTING.md](CONTRIBUTING.md). Verification reports for other drives are welcome.
+
+## 🔒 Security
+
+Found a problem that could expose a password or break a safety rule? Please report it
+privately, see [SECURITY.md](SECURITY.md).
 
 ## 🙏 Credits
 

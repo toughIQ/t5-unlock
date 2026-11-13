@@ -51,7 +51,7 @@ administrator, or use another computer.
 
 ## 📋 What a normal run looks like
 
-```
+```text
 Password:                          <- sudo: your Mac login password
 Found the locked T5 (setup disk /dev/disk4).
 T5 password:                       <- the drive's password
