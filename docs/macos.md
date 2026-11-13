@@ -1,18 +1,18 @@
-# macOS notes
+# 🍎 macOS notes
 
 Verified on macOS 27.2, Apple Silicon. Intel Macs and other macOS versions are
 untested.
 
-## Requirements
+## ✅ Requirements
 
-- Homebrew and the Xcode Command Line Tools (`xcode-select --install`)
-- `brew install libusb`
-- A **USB 3 (SuperSpeed) port and cable.** The tool needs the drive's UAS mode and
+- ✅ Homebrew and the Xcode Command Line Tools (`xcode-select --install`)
+- ✅ `brew install libusb`
+- ✅ A **USB 3 (SuperSpeed) port and cable.** The tool needs the drive's UAS mode and
   refuses a slower link.
-- `sudo`. The tool needs root to take over the USB interface. No kernel extension,
+- ✅ `sudo`. The tool needs root to take over the USB interface. No kernel extension,
   no background service and no code-signing identity are involved.
 
-## Build and run
+## 🧑‍💻 Build and run
 
 ```sh
 cd macos
@@ -22,11 +22,13 @@ sudo ./t5-unlock-mac --unlock    # one password attempt
 ```
 
 `make static` builds `t5-unlock-mac-static`, which has libusb linked in and does not
-need Homebrew at run time. A copy of the binary moved to another Mac is ad-hoc signed
-only. If it was downloaded, macOS may quarantine it; clear that yourself if you trust
-the build, or build it on the target Mac.
+need Homebrew at run time.
 
-## What a normal run looks like
+> 📌 **Note:** A copy of the binary moved to another Mac is ad-hoc signed only. If it
+> was downloaded, macOS may quarantine it. Clear that yourself if you trust the build,
+> or build it on the target Mac.
+
+## 📋 What a normal run looks like
 
 ```
 Found the locked T5 (setup disk /dev/disk4).
@@ -41,7 +43,7 @@ Unlocked T5 appeared: /dev/disk4, 931.5 GiB.
 Volume(s) mounted successfully
 ```
 
-## Troubleshooting
+## 🩺 Troubleshooting
 
 - **"Expected exactly one locked T5"**: the drive is not in the locked state or not
   visible. Unplug it, wait a few seconds, plug it in, and wait for `T5_SETUP`.
@@ -55,7 +57,7 @@ Volume(s) mounted successfully
 - **macOS asks whether to allow the accessory**: click Allow. The volume then mounts.
 - **Plain bulk-only mode timed out in testing.** The tool uses UAS only.
 
-## Why not just run the Linux script on a Mac?
+## ❓ Why not just run the Linux script on a Mac?
 
 macOS does not give user programs raw SCSI access to a USB disk, so the Linux
 `SG_IO` approach has no equivalent here. The macOS tool talks to the drive over USB

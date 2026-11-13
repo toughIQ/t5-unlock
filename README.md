@@ -1,29 +1,29 @@
-# t5-unlock
+# 🔓 t5-unlock
 
 Unlock your own password-protected **Samsung Portable SSD T5** on current macOS
 (Apple Silicon) and on Linux, now that the vendor's old unlock software no longer runs.
 
-> **Not affiliated with, endorsed by, or sponsored by Samsung.** "Samsung" and
+> ⚠️ **Not affiliated with, endorsed by, or sponsored by Samsung.** "Samsung" and
 > "Portable SSD T5" are trademarks of their owners. They are used here only to
 > say which drive this tool works with.
 
-## What this is, and what it is not
+## 🎯 What this is, and what it is not
 
-- It performs the same standard password check the vendor's own unlock app performed:
+- ✅ It performs the same standard password check the vendor's own unlock app performed:
   you give it **your** password, it sends the check, and the drive unlocks if it
   accepts the password.
-- It makes **one attempt per run**. It never retries, never guesses, and has no
-  brute-force, dictionary or recovery mode. Contributions that add any of that will
-  not be accepted.
-- It does not crack, bypass, reset or recover anything. It cannot read the drive's
+- ✅ It makes **one attempt per run**. It never retries and never guesses.
+- 🚫 It has no brute-force, dictionary or recovery mode. Contributions that add any of
+  that will not be accepted.
+- 🚫 It does not crack, bypass, reset or recover anything. It cannot read the drive's
   key or your data, and it cannot set, change or remove the password.
-- It contains no Samsung code, firmware or keys.
-- It refuses to talk to any drive it was not verified against (see below).
+- 🚫 It contains no Samsung code, firmware or keys.
+- 🛡️ It refuses to talk to any drive it was not verified against (see Status).
 
-If you forgot the password, this tool cannot help you. If you do not own the drive,
-do not use it.
+> 📌 **Note:** If you forgot the password, this tool cannot help you. If you do not own
+> the drive, do not use it.
 
-## Why this exists
+## 💡 Why this exists
 
 The original T5 shipped with a small read-only setup volume (`T5_SETUP`) holding
 Samsung's unlock app. On a current Mac that app no longer works: the 2017 installer
@@ -34,24 +34,22 @@ official tool for the original T5. If Samsung publishes one, use it instead.
 So a locked T5 on a modern computer shows only the tiny setup volume and the data
 stays out of reach, even for its legitimate owner. This repo is for those owners.
 
-## Status
+## 📋 Status
 
 Verified on **one** setup. Treat everything else as unverified.
 
 | Part | Verified on |
 |---|---|
-| Drive | One Samsung Portable SSD T5, USB `04e8:61f6` when locked and `04e8:61f5` when unlocked, protocol version `0x00010103`, hash scheme 0 |
-| macOS tool | macOS 27.2, Apple Silicon (M5 Pro), libusb 1.0.30, drive on a USB 3 port |
-| Linux tool | Fedora 44 (aarch64, in a UTM virtual machine with USB passthrough), Python 3 standard library only |
+| ✅ Drive | One Samsung Portable SSD T5, USB `04e8:61f6` when locked and `04e8:61f5` when unlocked, protocol version `0x00010103`, hash scheme 0 |
+| ✅ macOS tool | macOS 27.2, Apple Silicon (M5 Pro), libusb 1.0.30, drive on a USB 3 port |
+| ✅ Linux tool | Fedora 44 (aarch64, in a UTM virtual machine with USB passthrough), Python 3 standard library only |
+| ⚠️ Not verified | Other T5 units or firmware, T3, T7, T9 and other drives, Intel Macs, other macOS versions, other Linux distributions, USB 2 links |
 
-Not verified: other T5 units or firmware, T3, T7, T9 and other drives, Intel Macs,
-other macOS versions, other Linux distributions, USB 2 links. The tools check the
-drive's identity and protocol version first and stop if anything differs.
+The tools check the drive's identity and protocol version first and stop if anything
+differs. Offline self-tests (no drive needed) check the hash against published test
+vectors, the exact command bytes, password rules and reply parsing.
 
-Offline self-tests (no drive needed) check the hash against published test vectors,
-the exact command bytes, password rules and reply parsing.
-
-## Quick start: macOS (Apple Silicon)
+## 🍎 Quick start: macOS (Apple Silicon)
 
 You need Homebrew, the Xcode Command Line Tools and a USB 3 port and cable.
 
@@ -75,7 +73,7 @@ probe the drive drops off the USB list until you unplug and replug it.
 
 More detail and troubleshooting: [docs/macos.md](docs/macos.md).
 
-## Quick start: Linux
+## 🐧 Quick start: Linux
 
 ```sh
 sudo python3 linux/t5-unlock.py --probe     # read-only, no password
@@ -85,20 +83,20 @@ sudo python3 linux/t5-unlock.py --unlock    # one attempt
 Needs Python 3 and root (it uses the `SG_IO` interface). Details, and a recipe for
 macOS users who prefer a Linux virtual machine: [docs/linux.md](docs/linux.md).
 
-## How it works
+## 🔧 How it works
 
 The unlock is a short vendor-specific exchange carried in standard ATA pass-through
 commands. The password never leaves your computer in clear text: it is hashed with a
 challenge the drive provides. Full description, command bytes and reply formats:
 [docs/how-it-works.md](docs/how-it-works.md).
 
-## Other drives and vendors
+## 🔌 Other drives and vendors
 
 This was only tested on one T5. Other Samsung models may use a related protocol, but
 that is unproven here, and other vendors differ. If you want to extend it, read
 [CONTRIBUTING.md](CONTRIBUTING.md). Verification reports for other drives are welcome.
 
-## Credits
+## 🙏 Credits
 
 The protocol was first documented from USB observation by
 [TurboKach/samsung-t5-ssd-unlock-apple-silicon](https://github.com/TurboKach/samsung-t5-ssd-unlock-apple-silicon)
@@ -106,13 +104,13 @@ The protocol was first documented from USB observation by
 smaller implementation for Linux and macOS, checked against its published test
 vectors. Thanks to its author.
 
-## Disclaimer
+## ⚠️ Disclaimer
 
 This software is provided as is, without warranty. Use it only on drives you own and
 with your own password, and keep a backup of your data. It was tested on one drive and
 may behave differently on yours. The drive's behavior after many wrong passwords is
 unknown, which is why the tools never retry. See [LICENSE](LICENSE).
 
-## License
+## 📜 License
 
 [MIT](LICENSE)

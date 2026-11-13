@@ -1,31 +1,34 @@
-# Contributing
+# 🤝 Contributing
 
 Thanks for helping. This project exists so owners of old password-locked drives can
 get to their own data when the vendor's tool no longer runs. Keep it that way.
 
-## What will not be accepted
+## 🚫 What will not be accepted
 
-- Brute force, dictionary or guessing modes, or any password recovery
-- Anything that bypasses, resets or defeats the drive's protection, or reads the key
-- Retry loops. One attempt per run is a deliberate safety rule.
-- Vendor binaries, firmware, keys or decompiled vendor code
+- 🚫 Brute force, dictionary or guessing modes, or any password recovery
+- 🚫 Anything that bypasses, resets or defeats the drive's protection, or reads the key
+- 🚫 Retry loops. One attempt per run is a deliberate safety rule.
+- 🚫 Vendor binaries, firmware, keys or decompiled vendor code
 
-## What is welcome
+## ✅ What is welcome
 
-- **Verification reports** for other T5 units or firmware, macOS versions, Linux
+- ✅ **Verification reports** for other T5 units or firmware, macOS versions, Linux
   distributions and USB setups. Open an issue with: drive model, the output of
   `--probe` (it contains no password or personal data), host OS and version, and what
   happened. A probe that stops with "protocol version differs" is a useful report too.
-- Bug fixes and clearer docs.
-- **Support for other drives**, only with evidence from a real drive of that model:
+- ✅ Bug fixes and clearer docs.
+- ✅ **Support for other drives**, only with evidence from a real drive of that model:
   the exact identity strings and USB IDs, the protocol version it reports, and a
-  successful unlock by its owner. Add the model to the "Status" table in the README
+  successful unlock by its owner. Add the model to the Status table in the README
   only after that, and keep the identity checks strict.
 
-## Rules for changes
+## 🔧 Rules for changes
 
-- Do not weaken the checks that run before a password is sent.
-- Keep the offline tests passing: `python3 linux/test_offline.py` and
+- 🛡️ Do not weaken the checks that run before a password is sent.
+- ✅ Keep the offline tests passing: `python3 linux/test_offline.py` and
   `make -C macos selftest`.
-- Do not include drive contents, serial numbers or personal data in issues or commits.
-- Use plain, honest wording in docs. Say what was verified and what was not.
+- 🔒 Do not include drive contents, serial numbers or personal data in issues or commits.
+- 📝 Use plain, honest wording in docs. Say what was verified and what was not.
+- 📝 Follow the documentation style in [AGENTS.md](AGENTS.md): emojis in human-facing
+  docs for scanning, none in code, commit messages or agent-facing files, and no
+  em dashes.
