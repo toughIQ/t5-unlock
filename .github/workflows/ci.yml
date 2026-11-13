@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs only for pull requests. Runs on main are kept, so a slow macOS
+# runner queue cannot leave a commit on main without a finished test run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   python:
