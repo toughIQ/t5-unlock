@@ -82,7 +82,9 @@ means the drive did not receive any password data.
 - **"The T5 is not on a SuperSpeed link"**: use a USB-C port directly on the Mac and the
   original cable. Avoid hubs and adapters.
 - **"The drive may have dropped off the USB connection"**: after a probe or a failed
-  attempt the drive sometimes disconnects itself. Unplug it and plug it back in.
+  attempt the drive sometimes disconnects itself. Unplug it and plug it back in. After a
+  probe the tool waits up to 15 seconds for the drive to return; a slow return can still
+  show this hint.
 - **"Wrong password: the drive rejected it"**: the tool stops and sends no unlock
   command. Do not keep trying. The drive's behavior after several wrong passwords is
   unknown.
@@ -102,8 +104,13 @@ means the drive did not receive any password data.
 - **"Password must be 1-32 bytes"**: the drive password contains a space, an umlaut or
   another character outside plain ASCII, or is longer than 32 characters. Nothing was
   sent.
-- **"The drive is unlocked but not mounted yet"**: click Allow if macOS asks to allow the
-  accessory, or run the `diskutil mountDisk` command the tool prints.
+- **"The drive is unlocked, but no mounted volume was found"**: look in Finder first, an
+  APFS volume can mount under another disk name. Otherwise click Allow if macOS asks to
+  allow the accessory, or run the `diskutil mountDisk` command the tool prints.
+- **"Unlock sent. The relink was not sent"**: usually after Ctrl-C at that moment. The
+  full disk will not appear by itself. Unplug and replug the drive (this locks it again)
+  and unlock once more.
+- **"Interrupted"**: you pressed Ctrl-C. The message says whether anything was sent.
 - **Plain bulk-only mode timed out in testing.** The tool uses UAS only.
 
 ## 🔢 Exit codes
