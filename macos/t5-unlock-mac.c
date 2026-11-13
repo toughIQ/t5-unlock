@@ -23,6 +23,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <libusb.h>
 #include <readpassphrase.h>
 #include <signal.h>
@@ -358,14 +359,24 @@ static dev_info find_t5(void) {
     return d;
 }
 
-static int run_diskutil(const char *verb, const char *disk) {
+static int run_diskutil_ex(const char *verb, const char *disk, int quiet) {
     pid_t pid;
     char *argv[] = {"diskutil", (char *)verb, (char *)disk, NULL};
-    if (posix_spawn(&pid, "/usr/sbin/diskutil", NULL, NULL, argv, environ) != 0) return 1;
+    posix_spawn_file_actions_t fa;
+    int have_fa = quiet && posix_spawn_file_actions_init(&fa) == 0;
+    if (have_fa) {
+        posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+    }
+    int spawned = posix_spawn(&pid, "/usr/sbin/diskutil", have_fa ? &fa : NULL, NULL, argv, environ);
+    if (have_fa) posix_spawn_file_actions_destroy(&fa);
+    if (spawned != 0) return 1;
     int status = 0;
     while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
     return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
 }
+
+static int run_diskutil(const char *verb, const char *disk) { return run_diskutil_ex(verb, disk, 0); }
 
 /* ---------- USB open/claim ---------- */
 
@@ -572,8 +583,18 @@ static int do_unlock(void) {
         return 5;
     }
     printf("Unlocked T5 appeared: /dev/%s, %.1f GiB.\n", after.disk, (double)after.size / (1024.0 * 1024.0 * 1024.0));
-    if (run_diskutil("mountDisk", after.disk) != 0)
-        puts("Mounting did not finish automatically. If macOS asks to allow the accessory, click Allow, then it will mount.");
+    /* macOS often mounts the disk by itself at the same moment, so a first failure is not a failure.
+     * Ask a few times, quietly, and only complain if it is still not mounted. */
+    int mounted = 0;
+    for (int i = 0; i < 6 && !mounted && !interrupted; i++) {
+        mounted = run_diskutil_ex("mountDisk", after.disk, 1) == 0;
+        if (!mounted) {
+            struct timespec ts = {2, 0};
+            nanosleep(&ts, NULL);
+        }
+    }
+    if (mounted) puts("The volume is mounted.");
+    else puts("The drive is unlocked but did not mount yet. If macOS asks to allow the accessory, click Allow, then it will mount.");
     return 0;
 }
 

@@ -80,7 +80,8 @@ Verified on **one** setup. Treat everything else as unverified.
 | ✅ Linux tool | Fedora 44 (aarch64, in a UTM virtual machine with USB passthrough), Python 3 standard library only |
 | ✅ Safety rules | Mock-drive tests in CI check that a rejected password never leads to an unlock, nothing is retried, and unverified drives get no password data. They run without a drive. |
 | ✅ Linux lookup and prompts | Tests run the drive lookup against a fake sysfs tree and check the prompts, exit codes and messages of the unlock command. No drive needed. |
-| ⚠️ Pending | Both tools were restructured after their real-drive runs (to make the mock tests possible). Behaviour is meant to be identical, and the offline and mock tests pass, but a fresh run on a real drive has not been done yet. |
+| ✅ macOS re-run | After the code was restructured for the mock tests, the macOS tool was run again on the same drive (2026-11-13): password accepted, unlocked, full-size disk appeared and mounted. The automatic mount step was changed after that run (it now waits for macOS to mount the disk instead of reporting a failure) and has not been re-run on a drive. |
+| ⚠️ Pending | The Linux script was also restructured after its real-drive run. Its tests pass, but it has not been run on a real drive since. |
 | ⚠️ Not verified | Other T5 units or firmware, T3, T7, T9 and other drives, Windows, Intel Macs, other macOS versions, other Linux distributions, USB 2 links |
 
 The tools check the drive's identity and protocol version first and stop if anything

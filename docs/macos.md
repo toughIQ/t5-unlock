@@ -62,7 +62,7 @@ Unlock sent, then relink sent (a disconnect here is expected).
 Relink gave no clean reply (normal while the drive re-enumerates).
 Waiting for the drive to come back as the full-capacity disk ...
 Unlocked T5 appeared: /dev/disk4, 931.5 GiB.
-Volume(s) mounted successfully
+The volume is mounted.
 ```
 
 ## 🩺 Troubleshooting

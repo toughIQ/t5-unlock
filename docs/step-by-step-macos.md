@@ -92,7 +92,7 @@ A normal run ends like this:
 Password accepted by the drive.
 Unlock sent, then relink sent (a disconnect here is expected).
 Unlocked T5 appeared: /dev/disk4, 931.5 GiB.
-Volume(s) mounted successfully
+The volume is mounted.
 ```
 
 The disk name and size will differ on your Mac. If macOS asks whether to **allow the accessory**, click **Allow**. Your drive then shows
