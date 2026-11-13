@@ -26,8 +26,8 @@ finishes. If Terminal says the tools are already installed, continue.
 
 Homebrew is the usual way to install small developer tools on a Mac. Follow the
 instructions on [brew.sh](https://brew.sh). It shows one command to paste into Terminal.
-It asks for **your Mac login password** (nothing is shown while you type) and tells you
-at the end if it wants you to run two extra commands. Run those too.
+It asks for **your Mac login password** (nothing is shown while you type). At the end it
+may print a few more commands under "Next steps". Copy and run those exactly as shown.
 
 Check that it worked:
 
@@ -53,6 +53,7 @@ cd ~/Downloads/t5-unlock-main/macos
 ```
 
 If you already use git, `git clone https://github.com/toughIQ/t5-unlock.git` works too.
+Then use `cd t5-unlock/macos` from the folder where you cloned it.
 
 ## 6️⃣ Build it and run the offline test
 
@@ -60,13 +61,15 @@ If you already use git, `git clone https://github.com/toughIQ/t5-unlock.git` wor
 make selftest
 ```
 
-This compiles the tool on your own Mac and checks it without touching any drive. You
+`make` is the build tool that came with step 2. This compiles the tool on your own Mac
+and checks it without touching any drive. You
 should see a line starting with `PASS`. If it says `make: command not found`, repeat
 step 2.
 
 ## 7️⃣ Plug in the locked drive
 
-Use a **USB 3 port and the original cable**, without a hub or adapter. Wait until the
+Use a **USB-C port directly on the Mac and the original cable**, without a hub or
+adapter. Wait until the
 small `T5_SETUP` volume appears on your Desktop or in Finder. Do not open the Samsung
 app on it.
 
@@ -76,7 +79,8 @@ app on it.
 sudo -p "Mac login password: " ./t5-unlock-mac --unlock
 ```
 
-(`-p` only relabels sudo's prompt so you can tell the two passwords apart.)
+`sudo` runs one program with administrator rights. `-p` only changes the text of its
+password prompt, so you can tell the two passwords apart.
 
 You will be asked for two different passwords:
 
@@ -95,20 +99,25 @@ Unlocked T5 appeared: /dev/disk4, 931.5 GiB.
 The volume is mounted.
 ```
 
-The disk name and size will differ on your Mac. If macOS asks whether to **allow the accessory**, click **Allow**. Your drive then shows
+"Relink" means the drive switches from the small setup disk to the full disk; it
+reconnects by itself. The disk name and size will differ on your Mac. If macOS asks whether to **allow the accessory**, click **Allow**. Your drive then shows
 up in Finder with its files.
 
 ## 9️⃣ Copy your data off
 
-Once unlocked, copy anything important to another place right away. The drive locks
-again whenever it loses power, for example when you unplug it. To use it again, repeat
-steps 7 and 8.
+Once unlocked, copy anything important to another place right away. Before you unplug
+the drive, eject it in Finder (right-click its icon and choose **Eject**). The drive
+locks again whenever it loses power, for example when you unplug it. To use it again,
+repeat steps 7 and 8.
 
 ## 🩺 If something goes wrong
 
-- **"Expected exactly one locked T5"**: unplug the drive, wait five seconds, plug it
-  back in, wait for `T5_SETUP`, and try again.
-- **"Not on a SuperSpeed link"**: use a USB 3 port and the original cable.
+- **"No Samsung Portable SSD T5 found"** or **"Expected exactly one locked T5"**: unplug
+  the drive, wait five seconds, plug it back in, wait for `T5_SETUP`, and try again.
+- **"The drive may have dropped off the USB connection"**: unplug the drive and plug it
+  back in before you try again.
+- **"The T5 is not on a SuperSpeed link"**: use a USB-C port directly on the Mac and the
+  original cable.
 - **"Wrong password: the drive rejected it"**: the tool stopped and sent nothing else.
   Do not keep trying. The drive's behavior after many wrong attempts is unknown.
 - **Anything else**: see [docs/macos.md](macos.md) and the [FAQ](faq.md), or open a

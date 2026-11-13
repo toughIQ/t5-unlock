@@ -77,11 +77,11 @@ Verified on **one** setup. Treat everything else as unverified.
 |---|---|
 | ✅ Drive | One Samsung Portable SSD T5, USB `04e8:61f6` when locked and `04e8:61f5` when unlocked, protocol version `0x00010103`, hash scheme 0 |
 | ✅ macOS tool | macOS 27.2, Apple Silicon (M5 Pro), libusb 1.0.30, drive on a USB 3 port |
-| ✅ Linux tool | Fedora 44 (aarch64, in a UTM virtual machine with USB passthrough), Python 3 standard library only |
+| ✅ Linux tool | Fedora 44 (aarch64, in a UTM virtual machine with USB passthrough), Python 3 standard library only. This was an earlier version of the script, see Pending. |
 | ✅ Safety rules | Mock-drive tests in CI check that a rejected password never leads to an unlock, nothing is retried, and unverified drives get no password data. They run without a drive. |
 | ✅ Linux lookup and prompts | Tests run the drive lookup against a fake sysfs tree and check the prompts, exit codes and messages of the unlock command. No drive needed. |
-| ✅ macOS re-run | After the code was restructured for the mock tests, the macOS tool was run again on the same drive (2026-11-13): password accepted, unlocked, full-size disk appeared and mounted. The automatic mount step was changed after that run (it now waits for macOS to mount the disk instead of reporting a failure) and has not been re-run on a drive. |
-| ⚠️ Pending | The Linux script was also restructured after its real-drive run. Its tests pass, but it has not been run on a real drive since. |
+| ✅ macOS re-run | After the code was restructured for the mock tests, the macOS tool was run again on the same drive (2026-11-13): password accepted, unlocked, full-size disk appeared and mounted. |
+| ⚠️ Pending | Changes made after the last real-drive runs have not been run on a drive yet. macOS: checks before the password prompt, mount detection, handing the drive back after a probe, clearer messages. Linux: the script was reworked after its only real-drive run (safer unmounting, checks before the prompt, clearer messages). All offline and mock-drive tests pass for both. |
 | ⚠️ Not verified | Other T5 units or firmware, T3, T7, T9 and other drives, Windows, Intel Macs, other macOS versions, other Linux distributions, USB 2 links |
 
 The tools check the drive's identity and protocol version first and stop if anything
@@ -119,8 +119,13 @@ you to allow the accessory.
 >
 > Nothing is shown while you type either password.
 
-`sudo ./t5-unlock-mac --probe` is a read-only check that sends no password. After a
-probe the drive drops off the USB list until you unplug and replug it.
+`sudo ./t5-unlock-mac --probe` is a read-only check that sends no password. It is
+optional. If the drive does not come back by itself afterwards, the tool tells you to
+unplug it and plug it back in.
+
+`./t5-unlock-mac --help` lists all options and exit codes, `--version` shows the version.
+`sudo make install` copies the tool to `/usr/local/bin` if you want to keep it; it is
+not needed to use it.
 
 `make static` builds a self-contained binary that does not need Homebrew at run time.
 
@@ -148,6 +153,10 @@ The unlock is a short vendor-specific exchange carried in standard ATA pass-thro
 commands. The password never leaves your computer in clear text: it is hashed with a
 challenge the drive provides. Full description, command bytes and reply formats:
 [docs/how-it-works.md](docs/how-it-works.md).
+
+## 📝 Changes
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## ❓ Questions
 

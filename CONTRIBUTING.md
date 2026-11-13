@@ -34,7 +34,8 @@ get to their own data when the vendor's tool no longer runs. Keep it that way.
   - `make -C macos check` (self-test including the mock-drive safety tests, strict
     warnings as errors, AddressSanitizer and UndefinedBehaviorSanitizer, cppcheck).
     Needs `brew install libusb cppcheck`.
-  - `markdownlint-cli2` for the docs
+  - `make -C macos static` (self-contained build)
+  - `markdownlint-cli2` for the docs, `lychee` for links, `actionlint` for workflows
   - GitHub Actions runs all of these, plus CodeQL, on every push and pull request.
 - 🔒 Do not include drive contents, serial numbers or personal data in issues or commits.
 - 📝 Use plain, honest wording in docs. Say what was verified and what was not.

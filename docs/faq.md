@@ -54,8 +54,10 @@ for which prompt is which.
 ## 🔒 Is my password safe?
 
 The password is read directly from the terminal, never printed, never written to a file,
-never put in a command-line argument or environment variable, and the tool wipes its own
-buffers after use (best effort). The drive never receives the password itself: it gets a
+never put in a command-line argument or environment variable. The macOS tool also wipes
+its own buffers after use (best effort). The Linux script cannot do that reliably,
+because Python does not let a program wipe a string from memory; it simply does not keep
+or store the password. The drive never receives the password itself: it gets a
 hash built from the password and a random challenge the drive provided. The code is one
 short file per platform, so you can read it yourself.
 
@@ -68,8 +70,9 @@ does not need Homebrew afterwards, `make static` builds one on your own Mac.
 
 ## 🩺 The drive vanished after `--probe`. Is it broken?
 
-No. Claiming the drive's USB interface without unlocking leaves it off the USB list until
-you unplug it and plug it back in. That is expected.
+No. Taking over the drive's USB connection without unlocking it can leave it off the USB
+list. The macOS tool now tries to hand the drive back to macOS after a probe and tells you
+if it did not come back. Then unplug it and plug it back in. That is expected.
 
 ## ⚖️ Is this legal? Is it affiliated with Samsung?
 

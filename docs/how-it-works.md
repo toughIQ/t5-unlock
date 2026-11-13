@@ -27,12 +27,19 @@ and **SMART WRITE LOG** for vendor log pages, one 512-byte block each.
 
 | Step | Command | Log | Meaning |
 |---|---|---|---|
+| 0️⃣ | | | Unmount the setup volume (before any command is sent to the drive) |
 | 1️⃣ | SMART READ LOG | `0xC8` | Status block. Must contain `PSSD` at offset 0x20, protocol version `0x00010103` (little endian at 0x24), and bit 0 of the byte at 0x28 clear. |
 | 2️⃣ | SMART READ LOG | `0xD7` | Challenge block from the drive |
 | 3️⃣ | SMART WRITE LOG | `0xD6` | Validate the password. No unlock yet. |
-| 4️⃣ | | | Unmount the setup volume |
-| 5️⃣ | SMART WRITE LOG | `0xC6` | Unlock, using a fresh challenge and a recomputed hash |
+| 4️⃣ | SMART READ LOG | `0xD7` | A fresh challenge |
+| 5️⃣ | SMART WRITE LOG | `0xC6` | Unlock, using the fresh challenge and a recomputed hash |
 | 6️⃣ | SMART WRITE LOG | `0xCA` | Relink (all-zero block). The drive re-enumerates as the full disk. |
+
+An INQUIRY (standard SCSI identification) comes before step 1. The upstream project
+unmounts between steps 3 and 5; these tools unmount first, so the setup volume is never
+mounted while the drive is being talked to. Both tools also run the identity and status
+checks once before they ask for the password, so a wrong drive or port fails before you
+type anything.
 
 The tools stop at the first problem. If validation is rejected, no unlock command is
 sent. There is no loop and no retry anywhere.

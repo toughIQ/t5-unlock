@@ -57,8 +57,9 @@ The emojis below are reference data for the style, not decoration of this file.
   fake sysfs tree, prompts and exit codes).
 - `macos/t5-unlock-mac.c`: C with libusb. Checks: `make -C macos check` runs the
   self-test, a strict build with warnings as errors, an AddressSanitizer and
-  UndefinedBehaviorSanitizer build, and cppcheck.
-- Docs: `markdownlint-cli2` (config in `.markdownlint-cli2.jsonc`) and a link check.
+  UndefinedBehaviorSanitizer build, and cppcheck. `make -C macos static` must also build.
+- Docs: `markdownlint-cli2` (config in `.markdownlint-cli2.jsonc`) and a link check
+  (`lychee`, exclusions in `.lycheeignore`).
 - None of the checks needs a drive. Keep them passing and extend the self-tests with
   any change to hashing, command bytes, password rules or reply parsing.
 - The mock-drive tests (Python file, and the `mock:` checks in the C self-test) enforce

@@ -1,7 +1,8 @@
 # 🍎 macOS notes
 
 Verified on macOS 27.2, Apple Silicon. Intel Macs and other macOS versions are
-untested.
+untested. The automatic mount step at the end changed after the last real-drive run
+and has not been re-run on a drive yet (see the Status table in the README).
 
 ## ✅ Requirements
 
@@ -18,7 +19,7 @@ untested.
 cd macos
 make selftest                    # offline checks, no drive, no root
 sudo ./t5-unlock-mac --probe     # read-only, no password
-sudo ./t5-unlock-mac --unlock    # one password attempt
+sudo -p "Mac login password: " ./t5-unlock-mac --unlock    # one password attempt
 ```
 
 `make static` builds `t5-unlock-mac-static`, which has libusb linked in and does not
@@ -67,17 +68,49 @@ The volume is mounted.
 
 ## 🩺 Troubleshooting
 
-- **"Expected exactly one locked T5"**: the drive is not in the locked state or not
-  visible. Unplug it, wait a few seconds, plug it in, and wait for `T5_SETUP`.
-- **The drive vanished after `--probe`**: expected. Claiming the USB interface
-  without unlocking leaves the drive off the USB list until it is replugged.
-- **"Not on a SuperSpeed link"**: use a USB 3 port and the original USB-C cable.
-  Avoid hubs and adapters while testing.
-- **"Cannot claim the USB interface" or access errors**: run with `sudo`.
-- **Wrong password**: the tool stops after the drive rejects it and sends no unlock
-  command. Do not keep trying; the drive's lockout behavior is unknown.
-- **macOS asks whether to allow the accessory**: click Allow. The volume then mounts.
+Every message that ends in **"Nothing was sent"** or **"Nothing was asked or sent"**
+means the drive did not receive any password data.
+
+- **"No Samsung Portable SSD T5 found"**: plug it in and wait until the `T5_SETUP`
+  volume appears.
+- **"Expected exactly one locked T5 on USB"** or **"A T5 was found but it is not in the
+  verified locked state"**: the drive is not visible in its locked state. Unplug it, wait
+  a few seconds, plug it back in, and wait for `T5_SETUP`.
+- **"The T5 is already unlocked"**: nothing to do. If the message adds a
+  `diskutil mountDisk` command, run it to mount the volume.
+- **"The T5 is not on a SuperSpeed link"**: use a USB-C port directly on the Mac and the
+  original cable. Avoid hubs and adapters.
+- **"The drive may have dropped off the USB connection"**: after a probe or a failed
+  attempt the drive sometimes disconnects itself. Unplug it and plug it back in.
+- **"Wrong password: the drive rejected it"**: the tool stops and sends no unlock
+  command. Do not keep trying. The drive's behavior after several wrong passwords is
+  unknown.
+- **"Unlock did not report success"**: no relink was sent, so the drive stays locked.
+  Unplug and replug it before trying again.
+- **"The drive is unlocked but not mounted yet"**: click Allow if macOS asks to allow the
+  accessory, or run the `diskutil mountDisk` command the tool prints.
 - **Plain bulk-only mode timed out in testing.** The tool uses UAS only.
+
+## 🔢 Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success, or the drive is already unlocked |
+| 2 | No usable drive, or nothing was sent |
+| 3 | Transport, identity or unlock problem |
+| 4 | Wrong password |
+| 5 | The unlocked disk did not appear |
+| 64 | Usage error |
+| 77 | Not run as root |
+| 130 | Interrupted (Ctrl-C) |
+
+The Linux script uses the same codes.
+
+## 📦 Installing (optional)
+
+`sudo make install` copies `t5-unlock-mac` to `/usr/local/bin`, so you can run
+`sudo t5-unlock-mac --unlock` from anywhere. `sudo make uninstall` removes it.
+`make install PREFIX=/some/path` chooses another location.
 
 ## ❓ Why not just run the Linux script on a Mac?
 
