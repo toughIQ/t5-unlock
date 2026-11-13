@@ -3,7 +3,7 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## 🚧 [Unreleased]
 
 First public version, 0.1.0, prepared.
 
@@ -21,8 +21,9 @@ First public version, 0.1.0, prepared.
   unverified drive. The tests are checked by breaking the rules on purpose.
 - 🔑 Clear password prompts: `sudo` asks for the computer login password, the tool asks
   for the T5 DRIVE password twice (typo guard).
-- 🔍 Checks that need no password run before the password prompt, so a wrong drive,
-  port or cable fails before you type anything.
+- 🔍 Checks before the password prompt: the drive and its USB connection (macOS), or the
+  drive's identity and protocol version (Linux), so a wrong drive, port or cable usually
+  fails before you type anything.
 - 🔢 The same exit codes on both platforms (0, 2, 3, 4, 5, 64, 77, 130).
 - 📚 Docs: README with an "Is this for you?" check, FAQ, a step-by-step guide for macOS
   users without programming experience, protocol description, Linux virtual machine
@@ -47,5 +48,7 @@ First public version, 0.1.0, prepared.
 
 - Verified on one drive (Samsung Portable SSD T5, USB `04e8:61f6`, protocol version
   `0x00010103`), on macOS 27.2 Apple Silicon and Fedora 44 aarch64 in a virtual machine.
-  See the Status table in the README for what has been re-run after the latest changes.
+  The macOS re-run on 2026-11-13 passed on the restructured code. Later changes to both
+  tools have not been run on a drive yet, and the Linux run was an earlier version of the
+  script. See the Status table in the README.
 - No Windows support.

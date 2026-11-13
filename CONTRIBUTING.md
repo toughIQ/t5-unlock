@@ -36,7 +36,8 @@ get to their own data when the vendor's tool no longer runs. Keep it that way.
     Needs `brew install libusb cppcheck`.
   - `make -C macos static` (self-contained build)
   - `markdownlint-cli2` for the docs, `lychee` for links, `actionlint` for workflows
-  - GitHub Actions runs all of these, plus CodeQL, on every push and pull request.
+  - GitHub Actions runs all of these on every push and pull request. CodeQL runs on
+    pushes and pull requests to main, and weekly.
 - 🔒 Do not include drive contents, serial numbers or personal data in issues or commits.
 - 📝 Use plain, honest wording in docs. Say what was verified and what was not.
 - 📝 Follow the documentation style in [AGENTS.md](AGENTS.md): emojis in human-facing

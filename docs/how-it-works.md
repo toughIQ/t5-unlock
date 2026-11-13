@@ -37,9 +37,12 @@ and **SMART WRITE LOG** for vendor log pages, one 512-byte block each.
 
 An INQUIRY (standard SCSI identification) comes before step 1. The upstream project
 unmounts between steps 3 and 5; these tools unmount first, so the setup volume is never
-mounted while the drive is being talked to. Both tools also run the identity and status
-checks once before they ask for the password, so a wrong drive or port fails before you
-type anything.
+mounted while the drive is being talked to.
+
+Before the password prompt, the Linux script already reads the identity and the status
+block. The macOS tool checks the USB ID and link speed before the prompt, and reads the
+identity and status block right after it. In both tools those checks pass before any
+password data is sent.
 
 The tools stop at the first problem. If validation is rejected, no unlock command is
 sent. There is no loop and no retry anywhere.

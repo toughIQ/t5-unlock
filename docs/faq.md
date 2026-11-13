@@ -71,8 +71,8 @@ does not need Homebrew afterwards, `make static` builds one on your own Mac.
 ## 🩺 The drive vanished after `--probe`. Is it broken?
 
 No. Taking over the drive's USB connection without unlocking it can leave it off the USB
-list. The macOS tool now tries to hand the drive back to macOS after a probe and tells you
-if it did not come back. Then unplug it and plug it back in. That is expected.
+list. The macOS tool now tries to hand the drive back to macOS after a probe (not yet verified
+on a drive) and tells you if it did not come back. Then unplug it and plug it back in. That is expected.
 
 ## ⚖️ Is this legal? Is it affiliated with Samsung?
 

@@ -80,7 +80,8 @@ sudo -p "Mac login password: " ./t5-unlock-mac --unlock
 ```
 
 `sudo` runs one program with administrator rights. `-p` only changes the text of its
-password prompt, so you can tell the two passwords apart.
+password prompt, so you can tell the two passwords apart. If `sudo` refuses your
+password, your account is not an administrator: ask one, or use another computer.
 
 You will be asked for two different passwords:
 
@@ -118,6 +119,9 @@ repeat steps 7 and 8.
   back in before you try again.
 - **"The T5 is not on a SuperSpeed link"**: use a USB-C port directly on the Mac and the
   original cable.
+- **"Password must be 1-32 bytes"**: the drive password contains a space, an umlaut such
+  as ä, ö or ü, an ß, or is longer than 32 characters. Nothing was sent. If your real
+  password has such characters, this tool cannot send it yet; please open a report.
 - **"Wrong password: the drive rejected it"**: the tool stopped and sent nothing else.
   Do not keep trying. The drive's behavior after many wrong attempts is unknown.
 - **Anything else**: see [docs/macos.md](macos.md) and the [FAQ](faq.md), or open a

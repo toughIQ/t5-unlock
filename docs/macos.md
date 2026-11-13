@@ -1,8 +1,9 @@
 # 🍎 macOS notes
 
-Verified on macOS 27.2, Apple Silicon. Intel Macs and other macOS versions are
-untested. The automatic mount step at the end changed after the last real-drive run
-and has not been re-run on a drive yet (see the Status table in the README).
+Verified on macOS 27.2, Apple Silicon. A real-drive run on 2026-11-13 passed on the
+restructured code. Later changes (checks before the prompt, mount detection, handing the
+drive back after a probe, clearer messages) have not been run on a drive yet. See the
+Status table in the README. Intel Macs and other macOS versions are untested.
 
 ## ✅ Requirements
 
@@ -85,8 +86,22 @@ means the drive did not receive any password data.
 - **"Wrong password: the drive rejected it"**: the tool stops and sends no unlock
   command. Do not keep trying. The drive's behavior after several wrong passwords is
   unknown.
+- **"Password validation failed at transport level"**: the drive gave no clear answer,
+  so nothing else was sent. Do not retry blindly. Unplug and replug the drive, then try
+  once more only if you are sure of the password.
 - **"Unlock did not report success"**: no relink was sent, so the drive stays locked.
   Unplug and replug it before trying again.
+- **"The unlocked disk did not show up"**: the drive may still be unlocked. Check Finder or
+  Disk Utility before you unplug it, because unplugging locks it again.
+- **"Cannot claim the USB interface"** or another message starting with **"Cannot"**: the
+  tool could not take over the USB connection. No password was sent. Unplug the drive,
+  plug it into a USB-C port directly on the Mac, and try again.
+- **"Status check failed"** or **"INQUIRY did not identify a Samsung Portable SSD T5"**:
+  the drive answered, but not like the verified drive. No password was sent. Please open a
+  [verification report](https://github.com/toughIQ/t5-unlock/issues/new/choose).
+- **"Password must be 1-32 bytes"**: the drive password contains a space, an umlaut or
+  another character outside plain ASCII, or is longer than 32 characters. Nothing was
+  sent.
 - **"The drive is unlocked but not mounted yet"**: click Allow if macOS asks to allow the
   accessory, or run the `diskutil mountDisk` command the tool prints.
 - **Plain bulk-only mode timed out in testing.** The tool uses UAS only.
@@ -104,12 +119,15 @@ means the drive did not receive any password data.
 | 77 | Not run as root |
 | 130 | Interrupted (Ctrl-C) |
 
+`--selftest` returns 1 if an offline check fails.
+
 The Linux script uses the same codes.
 
 ## 📦 Installing (optional)
 
-`sudo make install` copies `t5-unlock-mac` to `/usr/local/bin`, so you can run
-`sudo t5-unlock-mac --unlock` from anywhere. `sudo make uninstall` removes it.
+Run `make` first as your normal user, then `sudo make install`. It copies
+`t5-unlock-mac` to `/usr/local/bin`, so you can run `sudo t5-unlock-mac --unlock` from
+anywhere. Building first matters because Homebrew's files should not be used as root. `sudo make uninstall` removes it.
 `make install PREFIX=/some/path` chooses another location.
 
 ## ❓ Why not just run the Linux script on a Mac?

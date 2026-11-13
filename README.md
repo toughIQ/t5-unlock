@@ -103,8 +103,9 @@ sudo -p "Mac login password: " ./t5-unlock-mac --unlock
 ```
 
 Plug in the locked T5 first and wait for the small `T5_SETUP` volume. The tool finds
-the drive, unmounts the setup volume, asks for the drive password twice, sends the
-check and the unlock, then waits for the full-size disk and mounts it. macOS may ask
+the drive and checks the USB connection, asks for the drive password twice, unmounts
+the setup volume, sends the check and the unlock, then waits for the full-size disk and
+mounts it. macOS may ask
 you to allow the accessory.
 
 > 🔑 **You will be asked for two different passwords:**
@@ -124,8 +125,8 @@ optional. If the drive does not come back by itself afterwards, the tool tells y
 unplug it and plug it back in.
 
 `./t5-unlock-mac --help` lists all options and exit codes, `--version` shows the version.
-`sudo make install` copies the tool to `/usr/local/bin` if you want to keep it; it is
-not needed to use it.
+To keep it, run `make` as your normal user, then `sudo make install` to copy it to
+`/usr/local/bin`. That is optional.
 
 `make static` builds a self-contained binary that does not need Homebrew at run time.
 

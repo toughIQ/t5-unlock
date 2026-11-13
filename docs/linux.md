@@ -52,6 +52,11 @@ means the drive did not receive any password data.
   again until you are sure of the password.
 - **"Unlock did not report success"**: no relink was sent, the drive stays locked.
   Unplug and replug it before trying again.
+- **"The unlocked disk did not show up"**: the drive may still be unlocked. Check with
+  `lsblk` before you unplug it, because unplugging locks it again. In a virtual machine
+  the disk often goes to the host instead.
+- **"Password must be 1-32 bytes"**: spaces, umlauts and other non-ASCII characters
+  (except Cyrillic) are not accepted. Nothing was sent.
 
 The exit codes are the same as on macOS, see [docs/macos.md](macos.md#-exit-codes).
 
