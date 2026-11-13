@@ -215,6 +215,23 @@ class UnlockWrapper(unittest.TestCase):
                 res.sequence.assert_not_called()
                 self.assertIn("Nothing was sent", res.err)
 
+    def test_undecodable_password_input_is_an_invalid_password(self):
+        for failure in (UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+                        UnicodeEncodeError("utf-8", "x", 0, 1, "surrogates")):
+            with self.subTest(failure=type(failure).__name__):
+                res = self.run_unlock(failure)
+                self.assertEqual(res.code, 2)
+                self.assertIn("Password must be 1-32 bytes of printable ASCII (no spaces) "
+                              "or Cyrillic. Nothing was sent.", res.err)
+                res.sequence.assert_not_called()
+                res.unmount.assert_not_called()
+
+    def test_lone_surrogate_in_the_password_is_refused_not_a_traceback(self):
+        res = self.run_unlock(["\udcffabc", "\udcffabc"])
+        self.assertEqual(res.code, 2)
+        self.assertIn("Nothing was sent.", res.err)
+        res.sequence.assert_not_called()
+
     def test_prompts_name_the_drive_password(self):
         res = self.run_unlock([PW] * 2)
         prompts = [c.args[0] for c in res.getpass.call_args_list]
@@ -234,7 +251,7 @@ class UnlockWrapper(unittest.TestCase):
         res.unmount.assert_called_once_with("/dev/sda")
         res.open.assert_called_once_with("/dev/sda", exclusive=True)
 
-    def test_wrong_password_exits_with_code_2_and_says_what_to_do(self):
+    def test_wrong_password_exits_with_code_4_and_says_what_to_do(self):
         res = self.run_unlock([PW] * 2, outcome=("rejected", ""))
         self.assertEqual(res.code, 4)
         self.assertIn("No unlock command was sent", res.err)
@@ -262,7 +279,11 @@ class UnlockWrapper(unittest.TestCase):
     def test_disk_not_appearing_is_an_error(self):
         res = self.run_unlock([PW] * 2, waited=False)
         self.assertEqual(res.code, 5)
-        self.assertIn("did not show up", res.err)
+        self.assertIn("The unlocked disk did not show up within 60 s. The drive may still be "
+                      "unlocked: check with lsblk before you unplug it, because unplugging "
+                      "locks it again. In a virtual machine the disk often goes to the host "
+                      "instead.", res.err)
+        self.assertNotIn("Replug", res.err)
 
     def test_no_terminal_is_refused_before_anything_happens(self):
         res = self.run_unlock([PW] * 2, tty=False)
@@ -273,20 +294,60 @@ class UnlockWrapper(unittest.TestCase):
         res.open.assert_not_called()
         res.sequence.assert_not_called()
 
-    def test_preflight_runs_before_the_password_is_asked(self):
-        res_calls = []
-        with mock.patch.object(t5, "preflight", side_effect=lambda d: res_calls.append("pre")), \
-                mock.patch.object(t5.getpass, "getpass",
-                                  side_effect=lambda p: res_calls.append("ask") or PW), \
-                mock.patch.object(t5, "unmount_all"), \
-                mock.patch.object(t5, "unlocked_disks", return_value=[]), \
-                mock.patch.object(t5, "open_device", fake_open_device), \
-                mock.patch.object(t5, "unlock_sequence", return_value=("unlocked", "")), \
-                mock.patch.object(t5, "wait_for_unlocked", return_value=True), \
+    def test_order_of_the_steps_in_unlock(self):
+        calls = []
+        sequence_ran = []
+        sysfs_state = [("sdb", 5)]
+
+        def record(name, result=None):
+            def func(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return result
+            return func
+
+        def snapshot():
+            calls.append(("snapshot", (), {}))
+            # a new unlocked disk shows up once the unlock was sent
+            return sysfs_state + ([("sdc", 5)] if sequence_ran else [])
+
+        def sequence(_fd, _pw):
+            calls.append(("sequence", (), {}))
+            sequence_ran.append(True)
+            return ("unlocked", "")
+
+        def opener(dev, exclusive=False):
+            calls.append(("open_exclusive" if exclusive else "open", (dev,), {}))
+            return fake_open_device(dev, exclusive)
+
+        def wait(before, *_):
+            calls.append(("wait", (before,), {}))
+            return True
+
+        with mock.patch.object(t5, "preflight", record("preflight")), \
+                mock.patch.object(t5.getpass, "getpass", side_effect=lambda p: (
+                    calls.append(("prompt", (p,), {})) or PW)), \
+                mock.patch.object(t5, "unmount_all", record("unmount")), \
+                mock.patch.object(t5, "unlocked_disks", snapshot), \
+                mock.patch.object(t5, "open_device", opener), \
+                mock.patch.object(t5, "unlock_sequence", sequence), \
+                mock.patch.object(t5, "wait_for_unlocked", wait), \
                 mock.patch.object(t5.sys, "stdin", FakeTty()), \
                 contextlib.redirect_stdout(io.StringIO()):
             t5.unlock("/dev/sda")
-        self.assertEqual(res_calls, ["pre", "ask", "ask"])
+
+        names = [c[0] for c in calls]
+        self.assertEqual(sorted(names), sorted([
+            "preflight", "prompt", "prompt", "snapshot", "unmount", "open_exclusive",
+            "sequence", "wait"]))
+        at = names.index
+        self.assertLess(at("preflight"), at("prompt"))
+        self.assertLess(at("snapshot"), at("sequence"))
+        self.assertLess(at("unmount"), at("open_exclusive"))
+        self.assertLess(at("open_exclusive"), at("sequence"))
+        self.assertLess(at("sequence"), at("wait"))
+        self.assertEqual(names[-1], "wait")
+        wait_call = calls[at("wait")]
+        self.assertEqual(wait_call[1][0], {"sdb"})  # exactly the snapshot from before
 
     def test_preflight_failure_means_no_password_prompt(self):
         bad_status = bytearray(good_status_block())
@@ -572,15 +633,13 @@ class Main(unittest.TestCase):
         code, _, err = self.run_main(["--unlock"], find_locked=mock.Mock(return_value="/dev/sda"),
                                      unlock=mock.Mock(side_effect=KeyboardInterrupt))
         self.assertEqual(code, 130)
-        self.assertIn("Aborted.", err)
-        self.assertNotIn("Traceback", err)
+        self.assertEqual(err, "Aborted. Nothing was sent.\n")
 
     def test_end_of_input_aborts_with_130_and_no_traceback(self):
         code, _, err = self.run_main(["--unlock"], find_locked=mock.Mock(return_value="/dev/sda"),
                                      unlock=mock.Mock(side_effect=EOFError))
         self.assertEqual(code, 130)
-        self.assertIn("Aborted.", err)
-        self.assertNotIn("Traceback", err)
+        self.assertEqual(err, "Aborted. Nothing was sent.\n")
 
     def test_ctrl_c_and_eof_at_the_password_prompt(self):
         for exc in (KeyboardInterrupt, EOFError):
@@ -594,6 +653,41 @@ class Main(unittest.TestCase):
                 self.assertEqual(code, 130)
                 self.assertNotIn("Traceback", err)
                 sequence.assert_not_called()
+
+    def run_interrupted_unlock(self, sequence=None, wait=None):
+        """Real unlock() with Ctrl-C raised at one step. Returns (code, stderr)."""
+        sequence = sequence or mock.Mock(return_value=("unlocked", ""))
+        wait = wait or mock.Mock(return_value=True)
+        with mock.patch.object(t5.getpass, "getpass", side_effect=[PW, PW]), \
+                mock.patch.object(t5, "unmount_all"), \
+                mock.patch.object(t5, "unlocked_disks", return_value=[]), \
+                mock.patch.object(t5, "open_device", fake_open_device), \
+                mock.patch.object(t5.sys, "stdin", FakeTty()):
+            code, _, err = self.run_main(
+                ["--unlock"], find_locked=mock.Mock(return_value="/dev/sda"),
+                preflight=mock.Mock(), unlock_sequence=sequence, wait_for_unlocked=wait)
+        return code, err
+
+    def test_ctrl_c_while_waiting_says_the_unlock_was_already_sent(self):
+        code, err = self.run_interrupted_unlock(wait=mock.Mock(side_effect=KeyboardInterrupt))
+        self.assertEqual(code, 130)
+        self.assertEqual(err, "Interrupted. The unlock was already sent: the drive may be "
+                              "unlocked. Check with lsblk before you unplug it, because "
+                              "unplugging locks it again.\n")
+        self.assertNotIn("Nothing was sent", err)
+
+    def test_ctrl_c_during_the_drive_conversation_does_not_claim_nothing_was_sent(self):
+        code, err = self.run_interrupted_unlock(sequence=mock.Mock(side_effect=KeyboardInterrupt))
+        self.assertEqual(code, 130)
+        self.assertIn("Interrupted while talking to the drive.", err)
+        self.assertNotIn("Nothing was sent", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_interrupt_message_does_not_leak_into_the_next_run(self):
+        self.run_interrupted_unlock(wait=mock.Mock(side_effect=KeyboardInterrupt))
+        code, _, err = self.run_main(["--unlock"], find_locked=mock.Mock(side_effect=EOFError))
+        self.assertEqual(code, 130)
+        self.assertEqual(err, "Aborted. Nothing was sent.\n")
 
     def test_usage_errors_exit_64_with_usage_on_stderr(self):
         for argv in ([], ["--probe", "--unlock"], ["--bogus"], ["--unlock", "extra"]):

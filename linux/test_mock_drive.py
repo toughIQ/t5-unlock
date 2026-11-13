@@ -240,6 +240,57 @@ class SafetyRules(unittest.TestCase):
         self.assertLessEqual(len(drive.commands), 7)
 
 
+class RealPreflight(unittest.TestCase):
+    """The real preflight() against the fake drive: read-only, before any password."""
+
+    def run_preflight(self, drive):
+        err = io.StringIO()
+        opened = []
+
+        def fake_open(_dev, exclusive=False):
+            opened.append(exclusive)
+            return os.open(os.devnull, os.O_RDONLY)
+
+        with mock.patch.object(t5, "sg_io", drive.sg_io), \
+                mock.patch.object(t5, "open_device", fake_open), \
+                contextlib.redirect_stderr(err):
+            try:
+                t5.preflight("/dev/sda")
+                code = None
+            except SystemExit as e:
+                code = e.code
+        self.assertEqual(opened, [False])
+        return code, err.getvalue()
+
+    def test_sends_exactly_inquiry_then_status_read_and_nothing_else(self):
+        drive = FakeDrive()
+        self.assertEqual(self.run_preflight(drive)[0], None)
+        self.assertEqual(drive.commands, [("inquiry",), ("read", t5.STATUS_LOG)])
+        self.assertEqual(drive.writes(), [])
+        self.assertEqual(drive.challenges, [])
+
+    def test_wrong_drive_gets_only_an_inquiry(self):
+        drive = FakeDrive(inquiry=b"Other Vendor Disk      ")
+        code, err = self.run_preflight(drive)
+        self.assertEqual(code, 3)
+        self.assertIn("No password was asked or sent.", err)
+        self.assertEqual(drive.commands, [("inquiry",)])
+
+    def test_bad_status_stops_after_the_status_read(self):
+        status = bytearray(good_status())
+        status[0x24:0x28] = (0x00020000).to_bytes(4, "little")
+        drive = FakeDrive(status=bytes(status))
+        code, err = self.run_preflight(drive)
+        self.assertEqual(code, 3)
+        self.assertIn("No password was asked or sent.", err)
+        self.assertEqual(drive.commands, [("inquiry",), ("read", t5.STATUS_LOG)])
+
+    def test_status_read_failure_stops_the_preflight(self):
+        drive = FakeDrive(read_fail={(t5.STATUS_LOG, 1)})
+        self.assertEqual(self.run_preflight(drive)[0], 3)
+        self.assertEqual(drive.commands, [("inquiry",), ("read", t5.STATUS_LOG)])
+
+
 class FakeIoctl:
     """Stands in for fcntl.ioctl: records the request and fills the SG_IO header."""
 

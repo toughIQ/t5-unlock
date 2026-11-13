@@ -63,6 +63,18 @@ EXIT_USAGE = 64
 EXIT_NOT_ROOT = 77
 EXIT_INTERRUPTED = 130
 
+PASSWORD_RULES = ("Password must be 1-32 bytes of printable ASCII (no spaces) or Cyrillic. "
+                  "Nothing was sent.")
+# How far the run got, so Ctrl-C can say what is true: nothing, talking, unlock_sent.
+PROGRESS = {"stage": "nothing"}
+INTERRUPTED = {
+    "nothing": "Aborted. Nothing was sent.",
+    "talking": "Interrupted while talking to the drive. It may or may not be unlocked. "
+               "Check with lsblk before you unplug it, because unplugging locks it again.",
+    "unlock_sent": "Interrupted. The unlock was already sent: the drive may be unlocked. "
+                   "Check with lsblk before you unplug it, because unplugging locks it again.",
+}
+
 
 class SgIoHdr(ctypes.Structure):
     _fields_ = [
@@ -433,18 +445,22 @@ def unlock(dev):
     if not sys.stdin.isatty():
         die("A terminal is needed to type the password. Nothing was sent.", EXIT_NOTHING_SENT)
     preflight(dev)
-    pw = getpass.getpass("T5 DRIVE password (not your login or sudo password): ").encode("utf-8")
-    again = getpass.getpass("Repeat the T5 DRIVE password: ").encode("utf-8")
+    try:
+        pw = getpass.getpass(
+            "T5 DRIVE password (not your login or sudo password): ").encode("utf-8")
+        again = getpass.getpass("Repeat the T5 DRIVE password: ").encode("utf-8")
+    except UnicodeError:
+        die(PASSWORD_RULES, EXIT_NOTHING_SENT)
     if pw != again:
         die("Passwords do not match. Nothing was sent.", EXIT_NOTHING_SENT)
     del again
     if not check_password(pw):
-        die("Password must be 1-32 bytes of printable ASCII (no spaces) or Cyrillic. "
-            "Nothing was sent.", EXIT_NOTHING_SENT)
+        die(PASSWORD_RULES, EXIT_NOTHING_SENT)
 
     unmount_all(dev)
     before = {name for name, _ in unlocked_disks()}
     fd = open_device(dev, exclusive=True)
+    PROGRESS["stage"] = "talking"
     try:
         outcome, detail = unlock_sequence(fd, pw)
     finally:
@@ -471,11 +487,13 @@ def unlock(dev):
         die("Unlock did not report success. No relink was sent. "
             "Unplug and replug the drive, then check with lsblk.", EXIT_PROBLEM)
 
+    PROGRESS["stage"] = "unlock_sent"
     print("Password accepted by the drive.")
     print("Unlock sent, then relink sent (a disconnect here is expected).")
     if not wait_for_unlocked(before):
-        die("The unlocked disk did not show up within 60 s. Replug the drive and check lsblk; "
-            "it stays unlocked only while powered.", EXIT_NO_DISK)
+        die("The unlocked disk did not show up within 60 s. The drive may still be unlocked: "
+            "check with lsblk before you unplug it, because unplugging locks it again. "
+            "In a virtual machine the disk often goes to the host instead.", EXIT_NO_DISK)
 
 
 EXIT_CODES = """exit codes:
@@ -505,6 +523,7 @@ def main():
     mode.add_argument("--probe", action="store_true", help="read-only check, no password")
     mode.add_argument("--unlock", action="store_true", help="one unlock attempt")
     args = ap.parse_args()
+    PROGRESS["stage"] = "nothing"
     try:
         if os.geteuid() != 0:
             die("Run as root (sudo).", EXIT_NOT_ROOT)
@@ -514,7 +533,7 @@ def main():
         else:
             unlock(dev)
     except (KeyboardInterrupt, EOFError):
-        die("Aborted.", EXIT_INTERRUPTED)
+        die(INTERRUPTED[PROGRESS["stage"]], EXIT_INTERRUPTED)
 
 
 if __name__ == "__main__":
