@@ -18,6 +18,8 @@
  * Usage:  sudo t5-unlock-mac --probe     read-only, no password
  *         sudo t5-unlock-mac --unlock    one password attempt, never retries
  *              t5-unlock-mac --selftest  offline checks, no drive, no root
+ *              t5-unlock-mac --help      usage and exit codes
+ *              t5-unlock-mac --version
  */
 #include <CommonCrypto/CommonDigest.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -32,6 +34,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mount.h>
+#include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -39,6 +43,7 @@
 
 extern char **environ;
 
+#define T5_VERSION "0.1.0"
 #define SAMSUNG_VID 0x04e8
 #define T5_LOCKED_PID 0x61f6
 #define T5_UNLOCKED_PID 0x61f5
@@ -151,6 +156,18 @@ typedef struct {
     int data_len;
 } uas_result;
 
+/* Pure parser for the UAS status IU. Fills status and sense only for a complete, well-formed IU
+ * with the expected tag. Returns 0 and leaves res untouched otherwise. */
+static int parse_status_iu(const uint8_t *st, int len, uint16_t tag, uas_result *res) {
+    if (len < 16 || st[0] != 3 || st[2] != (uint8_t)(tag >> 8) || st[3] != (uint8_t)tag) return 0;
+    int sn = st[14] << 8 | st[15];
+    if (len - 16 != sn || sn > (int)sizeof res->sense) return 0;
+    res->scsi_status = st[6];
+    res->sense_len = sn;
+    memcpy(res->sense, st + 16, (size_t)sn);
+    return 1;
+}
+
 static void LIBUSB_CALL on_done(struct libusb_transfer *t) { ((slot_t *)t->user_data)->done = 1; }
 
 static double now_s(void) {
@@ -197,21 +214,13 @@ static uas_result uas_run(libusb_context *ctx, libusb_device_handle *h, const ui
                 if (s[i].submitted && !s[i].done && !s[i].cancelled) { s[i].cancelled = 1; libusb_cancel_transfer(s[i].t); }
         if (t > 12) {
             fputs("USB transfers did not drain. Stopping. Replug the T5. Do not retry a password blindly.\n", stderr);
-            _Exit(1);
+            _Exit(3);
         }
         struct timeval w = {0, 100000};
         libusb_handle_events_timeout(ctx, &w);
     }
-    int sl = s[0].t->actual_length;
-    if (s[0].done && s[0].t->status == LIBUSB_TRANSFER_COMPLETED && sl >= 16 && st[0] == 3 &&
-        st[2] == (uint8_t)(tag >> 8) && st[3] == (uint8_t)tag) {
-        int sn = st[14] << 8 | st[15];
-        if (sl - 16 == sn && sn <= (int)sizeof res.sense) {
-            res.scsi_status = st[6];
-            res.sense_len = sn;
-            memcpy(res.sense, st + 16, (size_t)sn);
-        }
-    }
+    if (s[0].done && s[0].t->status == LIBUSB_TRANSFER_COMPLETED)
+        (void)parse_status_iu(st, s[0].t->actual_length, tag, &res);
     res.data_len = s[1].t->actual_length;
     res.transport_ok = !failed && res.scsi_status != 0xff && s[2].done && s[2].t->actual_length == 32 &&
                        res.data_len == (write ? BLOCK : want);
@@ -295,7 +304,7 @@ static int usb_identity(io_service_t svc, uint64_t *product, char serial[256]) {
     io_registry_entry_t cur = svc;
     IOObjectRetain(cur);
     while (cur) {
-        if (IOObjectConformsTo(cur, "IOUSBHostDevice")) {
+        if (IOObjectConformsTo(cur, "IOUSBHostDevice") || IOObjectConformsTo(cur, "IOUSBDevice")) {
             uint64_t vid = 0;
             int ok = num_prop(cur, CFSTR("idVendor"), &vid) && vid == SAMSUNG_VID && num_prop(cur, CFSTR("idProduct"), product) &&
                      str_prop(cur, CFSTR("USB Serial Number"), serial, 256) && serial[0];
@@ -333,7 +342,7 @@ static int whole_media(io_service_t svc, char disk[32], uint64_t *size) {
 static dev_info find_t5(void) {
     dev_info d = {D_ABSENT, {0}, 0, {0}};
     io_iterator_t it = IO_OBJECT_NULL;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOBlockStorageServices"), &it) != KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(MACH_PORT_NULL, IOServiceMatching("IOBlockStorageServices"), &it) != KERN_SUCCESS) {
         d.state = D_UNSUPPORTED;
         return d;
     }
@@ -378,6 +387,22 @@ static int run_diskutil_ex(const char *verb, const char *disk, int quiet) {
 
 static int run_diskutil(const char *verb, const char *disk) { return run_diskutil_ex(verb, disk, 0); }
 
+/* True for /dev/<disk> itself and for its slices /dev/<disk>s1, ... (not /dev/<disk>0). */
+static int mount_is_on_disk(const char *from, const char *disk) {
+    char whole[48], part[48];
+    snprintf(whole, sizeof whole, "/dev/%s", disk);
+    snprintf(part, sizeof part, "/dev/%ss", disk);
+    return strcmp(from, whole) == 0 || strncmp(from, part, strlen(part)) == 0;
+}
+
+static int disk_mounted(const char *disk) {
+    struct statfs *fs = NULL;
+    int n = getmntinfo(&fs, MNT_NOWAIT);
+    for (int i = 0; i < n; i++)
+        if (mount_is_on_disk(fs[i].f_mntfromname, disk)) return 1;
+    return 0;
+}
+
 /* ---------- USB open/claim ---------- */
 
 static libusb_device *find_usb_locked(libusb_device **list, ssize_t n) {
@@ -393,7 +418,37 @@ static libusb_device *find_usb_locked(libusb_device **list, ssize_t n) {
     return matches == 1 ? t : NULL;
 }
 
-typedef struct { libusb_context *ctx; libusb_device **list; libusb_device_handle *h; int claimed, streams; } usb_t;
+/* Returns NULL and sets *out when there is exactly one locked T5 on a SuperSpeed link. */
+static const char *usb_check_device(libusb_device **list, ssize_t n, libusb_device **out) {
+    libusb_device *t = find_usb_locked(list, n);
+    if (!t) return "Expected exactly one locked T5 on USB (04e8:61f6).";
+    int sp = libusb_get_device_speed(t);
+    if (sp != LIBUSB_SPEED_SUPER && sp != LIBUSB_SPEED_SUPER_PLUS)
+        return "The T5 is not on a SuperSpeed link (use a USB 3 port and cable).";
+    *out = t;
+    return NULL;
+}
+
+/* Looks at the USB bus without opening the device, so it can run before the password prompt. */
+static void usb_precheck(void) {
+    libusb_context *ctx = NULL;
+    libusb_device **list = NULL;
+    libusb_device *t = NULL;
+    const char *problem = "libusb_init failed.";
+    if (libusb_init(&ctx) == 0) {
+        libusb_set_option(ctx, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_ERROR);
+        ssize_t n = libusb_get_device_list(ctx, &list);
+        problem = usb_check_device(list, n, &t);
+        if (list) libusb_free_device_list(list, 1);
+        libusb_exit(ctx);
+    }
+    if (problem) {
+        fprintf(stderr, "%s Nothing was asked or sent.\n", problem);
+        exit(2);
+    }
+}
+
+typedef struct { libusb_context *ctx; libusb_device **list; libusb_device_handle *h; int claimed, captured, streams; } usb_t;
 static unsigned char stream_eps[3] = {EP_STATUS_IN, EP_DATA_IN, EP_DATA_OUT};
 
 static int usb_open(usb_t *u) {
@@ -401,26 +456,32 @@ static int usb_open(usb_t *u) {
     if (libusb_init(&u->ctx) != 0) { fputs("libusb_init failed.\n", stderr); return 0; }
     libusb_set_option(u->ctx, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_ERROR);
     ssize_t n = libusb_get_device_list(u->ctx, &u->list);
-    libusb_device *t = find_usb_locked(u->list, n);
-    if (!t) { fputs("Expected exactly one locked T5 on USB (04e8:61f6). Nothing was sent.\n", stderr); return 0; }
-    int sp = libusb_get_device_speed(t);
-    if (sp != LIBUSB_SPEED_SUPER && sp != LIBUSB_SPEED_SUPER_PLUS) {
-        fputs("The T5 is not on a SuperSpeed link (use a USB 3 port and cable). Nothing was sent.\n", stderr);
-        return 0;
-    }
+    libusb_device *t = NULL;
+    const char *problem = usb_check_device(u->list, n, &t);
+    if (problem) { fprintf(stderr, "%s Nothing was sent.\n", problem); return 0; }
     int r = libusb_open(t, &u->h);
     if (r != 0) { fprintf(stderr, "Cannot open the T5: %s\n", libusb_error_name(r)); return 0; }
     r = libusb_detach_kernel_driver(u->h, 0);
-    if (r != 0 && r != LIBUSB_ERROR_NOT_FOUND) { fprintf(stderr, "Cannot detach the macOS driver: %s\n", libusb_error_name(r)); return 0; }
+    if (r == 0) u->captured = 1;
+    else if (r != LIBUSB_ERROR_NOT_FOUND) { fprintf(stderr, "Cannot detach the macOS driver: %s\n", libusb_error_name(r)); return 0; }
     r = libusb_claim_interface(u->h, 0);
     if (r != 0) { fprintf(stderr, "Cannot claim the USB interface: %s\n", libusb_error_name(r)); return 0; }
     u->claimed = 1;
+    u->captured = 1;
     r = libusb_set_interface_alt_setting(u->h, 0, 1);
     if (r != 0) { fprintf(stderr, "Cannot switch the T5 to UAS mode: %s\n", libusb_error_name(r)); return 0; }
     r = libusb_alloc_streams(u->h, 2, stream_eps, 3);
     if (r < 2) { fprintf(stderr, "Cannot allocate USB streams (%d).\n", r); return 0; }
     u->streams = 1;
     return 1;
+}
+
+/* Probe only: put the drive back in bulk-only mode and let the release give the interface back to macOS. */
+static void usb_back_to_bulk_only(usb_t *u) {
+    if (!u->h || !u->claimed) return;
+    if (u->streams) { libusb_free_streams(u->h, stream_eps, 3); u->streams = 0; }
+    (void)libusb_set_interface_alt_setting(u->h, 0, 0);
+    (void)libusb_set_auto_detach_kernel_driver(u->h, 1);
 }
 
 static void usb_close(usb_t *u) {
@@ -439,7 +500,8 @@ static dev_info require_locked(void) {
     switch (d.state) {
     case D_LOCKED: return d;
     case D_UNLOCKED:
-        printf("The T5 is already unlocked (/dev/%s). Nothing to do.\n", d.disk);
+        if (disk_mounted(d.disk)) printf("The T5 is already unlocked (/dev/%s). Nothing to do.\n", d.disk);
+        else printf("The T5 is already unlocked (/dev/%s), but not mounted. Run: diskutil mountDisk /dev/%s\n", d.disk, d.disk);
         exit(0);
     case D_ABSENT: die("No Samsung Portable SSD T5 found. Plug it in and wait for the T5_SETUP volume.", 2);
     case D_AMBIGUOUS: die("More than one T5 found. Connect only one. Nothing was sent.", 2);
@@ -459,9 +521,20 @@ static int wait_for_unlocked(const char *serial, dev_info *out) {
     return 0;
 }
 
+/* After a drive was captured and not unlocked: say so only if it did not come back by itself. */
+static void report_if_dropped(void) {
+    for (int i = 0; i < 10; i++) {
+        if (find_t5().state == D_LOCKED) return;
+        struct timespec ts = {0, 500000000};
+        nanosleep(&ts, NULL);
+    }
+    fputs("The drive may have dropped off the USB connection. Unplug it and plug it back in before trying again.\n", stderr);
+}
+
 static int do_probe(void) {
     dev_info d = require_locked();
     printf("Found the locked T5 (setup disk /dev/%s).\n", d.disk);
+    usb_precheck();
     printf("Unmounting setup disk %s.\n", d.disk);
     if (run_diskutil("unmountDisk", d.disk) != 0) die("Could not unmount the setup disk. Nothing was sent.", 2);
     usb_t u;
@@ -479,8 +552,10 @@ static int do_probe(void) {
             rc = 0;
         }
     }
+    int captured = u.captured;
+    usb_back_to_bulk_only(&u);
     usb_close(&u);
-    puts("The drive may drop off the USB list after a probe. Replug it before unlocking.");
+    if (captured) report_if_dropped();
     return rc;
 }
 
@@ -520,11 +595,21 @@ end:
 static int do_unlock(void) {
     dev_info d = require_locked();
     printf("Found the locked T5 (setup disk /dev/%s).\n", d.disk);
+    usb_precheck();
     uint8_t pw[PASSWORD_MAX + 2] = {0};
-    char buf1[128], buf2[128];
-    if (!readpassphrase("T5 DRIVE password (not your Mac password): ", buf1, sizeof buf1, RPP_REQUIRE_TTY) ||
-        !readpassphrase("Repeat the T5 DRIVE password: ", buf2, sizeof buf2, RPP_REQUIRE_TTY))
+    char buf1[128] = {0}, buf2[128] = {0};
+    int got = readpassphrase("T5 DRIVE password (not your Mac password): ", buf1, sizeof buf1, RPP_REQUIRE_TTY) != NULL &&
+              readpassphrase("Repeat the T5 DRIVE password: ", buf2, sizeof buf2, RPP_REQUIRE_TTY) != NULL;
+    if (interrupted) {
+        zero(buf1, sizeof buf1);
+        zero(buf2, sizeof buf2);
+        die("Interrupted. Nothing was sent.", 130);
+    }
+    if (!got) {
+        zero(buf1, sizeof buf1);
+        zero(buf2, sizeof buf2);
         die("Could not read the password from the terminal. Nothing was sent.", 2);
+    }
     size_t len = strlen(buf1);
     int same = strcmp(buf1, buf2) == 0;
     zero(buf2, sizeof buf2);
@@ -554,16 +639,19 @@ static int do_unlock(void) {
         case UO_NO_STATUS: fputs("Could not read the drive status. No password was sent.\n", stderr); break;
         case UO_BAD_STATUS: fprintf(stderr, "Status check failed: %s. No password was sent.\n", detail); break;
         case UO_NO_CHALLENGE: fputs("Could not get a usable challenge. No password was sent.\n", stderr); break;
-        case UO_REJECTED: fputs("Wrong password: the drive rejected it. No unlock command was sent.\n", stderr); rc = 4; break;
+        case UO_REJECTED:
+            fputs("Wrong password: the drive rejected it. No unlock command was sent.\n", stderr);
+            fputs("Do not try again until you are sure of the password. The drive's behavior after several wrong passwords is unknown.\n", stderr);
+            rc = 4;
+            break;
         case UO_VALIDATION_UNCLEAR:
             fputs("Password validation failed at transport level (outcome unclear). No unlock command was sent. Do not retry blindly.\n", stderr);
             break;
-        case UO_INTERRUPTED: fputs("Interrupted before the unlock command. Nothing unlocked.\n", stderr); break;
+        case UO_INTERRUPTED: fputs("Interrupted before the unlock command. Nothing unlocked.\n", stderr); rc = 130; break;
         case UO_NO_FRESH_CHALLENGE: fputs("Could not read a fresh challenge. No unlock command was sent.\n", stderr); break;
         case UO_UNLOCK_ERROR:
-            fputs("Unlock returned an error; checking for the data disk anyway, no relink sent.\n", stderr);
-            sent_unlock = 1;
-            rc = 0;
+            fputs("Unlock did not report success. No relink was sent. Unplug and replug the T5 (this locks it again), "
+                  "then run the tool once more if you are sure of the password.\n", stderr);
             break;
         case UO_UNLOCKED:
             puts("Unlock sent, then relink sent (a disconnect here is expected).");
@@ -574,27 +662,35 @@ static int do_unlock(void) {
         }
     }
     zero(pw, sizeof pw);
+    int captured = u.captured;
     usb_close(&u);
-    if (!sent_unlock) return rc;
+    if (!sent_unlock) {
+        if (captured) report_if_dropped();
+        return rc;
+    }
 
     dev_info after;
     if (!wait_for_unlocked(d.serial, &after)) {
+        if (interrupted) { fputs("Interrupted.\n", stderr); return 130; }
         fputs("The unlocked disk did not show up within 60 s. Replug the T5 and check Disk Utility; it stays unlocked only while powered.\n", stderr);
         return 5;
     }
     printf("Unlocked T5 appeared: /dev/%s, %.1f GiB.\n", after.disk, (double)after.size / (1024.0 * 1024.0 * 1024.0));
     /* macOS often mounts the disk by itself at the same moment, so a first failure is not a failure.
      * Ask a few times, quietly, and only complain if it is still not mounted. */
-    int mounted = 0;
+    int mounted = disk_mounted(after.disk);
     for (int i = 0; i < 6 && !mounted && !interrupted; i++) {
-        mounted = run_diskutil_ex("mountDisk", after.disk, 1) == 0;
+        mounted = run_diskutil_ex("mountDisk", after.disk, 1) == 0 || disk_mounted(after.disk);
         if (!mounted) {
             struct timespec ts = {2, 0};
             nanosleep(&ts, NULL);
         }
     }
+    if (!mounted && interrupted) { fputs("Interrupted.\n", stderr); return 130; }
     if (mounted) puts("The volume is mounted.");
-    else puts("The drive is unlocked but did not mount yet. If macOS asks to allow the accessory, click Allow, then it will mount.");
+    else
+        printf("The drive is unlocked but not mounted yet. If macOS asks to allow the accessory, click Allow. "
+               "Otherwise run: diskutil mountDisk /dev/%s\n", after.disk);
     return 0;
 }
 
@@ -753,6 +849,33 @@ static void safety_tests(void) {
     check(fake.ncmds <= 7 && !fake.malformed, "mock: command count is bounded");
 }
 
+static void status_iu_tests(void) {
+    uint8_t st[96] = {0};
+    uas_result r = {0, 0xff, {0}, 0, 0};
+    const uint8_t sense[22] = {0x72, 0x01, 0x00, 0x1D, 0, 0, 0, 14, 0x09, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x50};
+
+    st[0] = 3; st[3] = 1;
+    check(parse_status_iu(st, 16, 1, &r) && r.scsi_status == 0 && r.sense_len == 0, "status IU: valid GOOD");
+
+    memset(&r, 0, sizeof r);
+    r.scsi_status = 0xff;
+    st[6] = 2; st[15] = 22;
+    memcpy(st + 16, sense, 22);
+    check(parse_status_iu(st, 38, 1, &r) && r.scsi_status == 2 && r.sense_len == 22 && memcmp(r.sense, sense, 22) == 0,
+          "status IU: valid CHECK CONDITION with 22 sense bytes");
+
+    memset(&r, 0, sizeof r);
+    r.scsi_status = 0xff;
+    check(!parse_status_iu(st, 15, 1, &r) && r.scsi_status == 0xff, "status IU: truncated IU refused");
+    check(!parse_status_iu(st, 38, 2, &r) && r.scsi_status == 0xff, "status IU: wrong tag refused");
+    check(!parse_status_iu(st, 30, 1, &r) && r.scsi_status == 0xff, "status IU: sense shorter than announced refused");
+    check(!parse_status_iu(st, 39, 1, &r) && r.scsi_status == 0xff, "status IU: sense longer than announced refused");
+    st[0] = 1;
+    check(!parse_status_iu(st, 38, 1, &r) && r.scsi_status == 0xff, "status IU: wrong IU id refused");
+    st[0] = 3; st[14] = 0; st[15] = 65;
+    check(!parse_status_iu(st, 81, 1, &r) && r.scsi_status == 0xff, "status IU: oversized sense refused");
+}
+
 static int do_selftest(void) {
     uint8_t ch[BLOCK], chr[BLOCK], out[BLOCK];
     char hex[65];
@@ -824,19 +947,55 @@ static int do_selftest(void) {
     ok_sense[21] = 0x51;
     check(!ata_sense_ok(ok_sense, 22), "ATA error bit refused");
 
+    status_iu_tests();
+
+    check(mount_is_on_disk("/dev/disk4", "disk4"), "mount: whole disk matches");
+    check(mount_is_on_disk("/dev/disk4s1", "disk4"), "mount: slice matches");
+    check(!mount_is_on_disk("/dev/disk40s1", "disk4"), "mount: other disk with same prefix does not match");
+    check(!mount_is_on_disk("/dev/disk40", "disk4"), "mount: other whole disk does not match");
+    check(!mount_is_on_disk("/dev/disk5s1", "disk4"), "mount: different disk does not match");
+    check(!mount_is_on_disk("map auto_home", "disk4"), "mount: non-device mount does not match");
+
     safety_tests();
 
     if (fails) { printf("%d check(s) failed.\n", fails); return 1; }
-    puts("PASS: hash vectors, challenge fields, password guards, status, CDBs, sense parsing, mock-drive safety rules");
+    puts("PASS: hash vectors, challenge fields, password guards, status, CDBs, sense parsing, status IU, mount matching, mock-drive safety rules");
     return 0;
 }
 
+static void print_help(void) {
+    puts("t5-unlock-mac " T5_VERSION "\n"
+         "Unlock your own password-protected Samsung Portable SSD T5 on macOS.\n"
+         "\n"
+         "Usage:\n"
+         "  sudo t5-unlock-mac --probe     check the drive, no password asked or sent\n"
+         "  sudo t5-unlock-mac --unlock    one password attempt, never retries\n"
+         "  t5-unlock-mac --selftest       offline checks, no drive, no root\n"
+         "  t5-unlock-mac --help           show this text\n"
+         "  t5-unlock-mac --version        show the version\n"
+         "\n"
+         "Exit codes:\n"
+         "  0    success, or the drive is already unlocked\n"
+         "  2    no usable drive, or nothing was sent\n"
+         "  3    transport, identity or unlock problem\n"
+         "  4    wrong password\n"
+         "  5    the unlocked disk did not appear\n"
+         "  64   usage error\n"
+         "  77   not run as root\n"
+         "  130  interrupted");
+}
+
 int main(int argc, char **argv) {
-    if (argc != 2) die("Usage: sudo t5-unlock-mac --probe | --unlock   (offline: t5-unlock-mac --selftest)", 64);
+    const char *usage = "Usage: sudo t5-unlock-mac --probe | --unlock   (also: --selftest, --help, --version)";
+    if (argc != 2) die(usage, 64);
+    if (strcmp(argv[1], "--help") == 0) { print_help(); return 0; }
+    if (strcmp(argv[1], "--version") == 0) { puts("t5-unlock-mac " T5_VERSION); return 0; }
     if (strcmp(argv[1], "--selftest") == 0) return do_selftest();
     int probe = strcmp(argv[1], "--probe") == 0, unlock = strcmp(argv[1], "--unlock") == 0;
-    if (!probe && !unlock) die("Usage: sudo t5-unlock-mac --probe | --unlock   (offline: t5-unlock-mac --selftest)", 64);
+    if (!probe && !unlock) die(usage, 64);
     if (geteuid() != 0) die("Run as root: sudo t5-unlock-mac --unlock", 77);
+    struct rlimit no_core = {0, 0};
+    if (setrlimit(RLIMIT_CORE, &no_core) != 0) die("Cannot disable core dumps. Nothing was asked or sent.", 2);
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     return probe ? do_probe() : do_unlock();

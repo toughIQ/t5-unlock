@@ -1,5 +1,6 @@
 CC ?= cc
 CFLAGS ?= -O2 -Wall -Wextra
+PREFIX ?= /usr/local
 LIBUSB_PREFIX ?= $(shell brew --prefix libusb 2>/dev/null || echo /opt/homebrew)
 INC = -I$(LIBUSB_PREFIX)/include/libusb-1.0
 FRAMEWORKS = -framework IOKit -framework CoreFoundation
@@ -34,8 +35,16 @@ cppcheck:
 # Everything that needs no drive.
 check: selftest strict sanitize cppcheck
 
+# Optional: copy the tool to $(PREFIX)/bin (default /usr/local/bin).
+install: t5-unlock-mac
+	install -d $(PREFIX)/bin
+	install -m 755 t5-unlock-mac $(PREFIX)/bin/t5-unlock-mac
+
+uninstall:
+	rm -f $(PREFIX)/bin/t5-unlock-mac
+
 clean:
 	rm -f t5-unlock-mac t5-unlock-mac-static t5-unlock-mac-strict t5-unlock-mac-san
 	rm -rf *.dSYM
 
-.PHONY: static selftest strict sanitize cppcheck check clean
+.PHONY: static selftest strict sanitize cppcheck check install uninstall clean
