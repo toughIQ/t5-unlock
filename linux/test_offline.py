@@ -81,7 +81,10 @@ err = bytearray(ok_sense)
 err[21] = 0x51
 assert not t5.ata_sense_ok(bytes(err))
 
-# SG_IO header layout on 64-bit Linux is 88 bytes.
-assert ctypes.sizeof(t5.SgIoHdr) == 88, ctypes.sizeof(t5.SgIoHdr)
+# SG_IO header layout: 88 bytes on 64-bit Linux, 64 bytes on 32-bit.
+expected_size = 88 if ctypes.sizeof(ctypes.c_void_p) == 8 else 64
+assert ctypes.sizeof(t5.SgIoHdr) == expected_size, ctypes.sizeof(t5.SgIoHdr)
+
+assert t5.VERSION == "0.1.0", t5.VERSION
 
 print("PASS: hash vectors, challenge fields, guards, status, CDBs, sense parsing, SG_IO layout")

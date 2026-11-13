@@ -21,16 +21,21 @@ Usage (as root):
 """
 
 import argparse
+import contextlib
 import ctypes
+import errno
 import fcntl
 import getpass
 import glob
 import hashlib
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import time
+
+VERSION = "0.1.0"
 
 SG_IO = 0x2285
 SG_DXFER_TO_DEV = -2
@@ -41,6 +46,7 @@ SAMSUNG_VID = "04e8"
 T5_LOCKED_PID = "61f6"
 T5_UNLOCKED_PID = "61f5"
 SYS_BLOCK = "/sys/block"
+MOUNTS = "/proc/mounts"
 SETUP_MAX_BYTES = 1 << 30  # the setup disk is tens of MB; anything big is not it
 
 BLOCK = 512
@@ -48,6 +54,14 @@ STATUS_LOG, CHALLENGE_LOG = 0xC8, 0xD7
 VALIDATE_LOG, UNLOCK_LOG, RELINK_LOG = 0xD6, 0xC6, 0xCA
 VERIFIED_VERSION = 0x00010103
 PASSWORD_MAX = 32
+
+EXIT_NOTHING_SENT = 2  # no usable drive, or nothing was sent
+EXIT_PROBLEM = 3       # transport, identity or unlock problem
+EXIT_WRONG_PASSWORD = 4
+EXIT_NO_DISK = 5       # the unlocked disk did not appear in time
+EXIT_USAGE = 64
+EXIT_NOT_ROOT = 77
+EXIT_INTERRUPTED = 130
 
 
 class SgIoHdr(ctypes.Structure):
@@ -86,12 +100,12 @@ class Reply:
         self.resid = resid
 
 
-def die(msg, code=1):
+def die(msg, code):
     print(msg, file=sys.stderr)
     sys.exit(code)
 
 
-def sg_io(fd, cdb, direction, buf):
+def sg_io(fd, cdb, direction, buf, quiet=False):
     cdb_buf = (ctypes.c_ubyte * len(cdb)).from_buffer_copy(bytes(cdb))
     sense_buf = (ctypes.c_ubyte * 64)()
     data_buf = (ctypes.c_ubyte * len(buf)).from_buffer(buf)
@@ -108,11 +122,12 @@ def sg_io(fd, cdb, direction, buf):
     try:
         fcntl.ioctl(fd, SG_IO, hdr)
     except OSError as e:
-        print(f"  SG_IO ioctl failed: {e}", file=sys.stderr)
+        if not quiet:
+            print(f"  SG_IO ioctl failed: {e}", file=sys.stderr)
         return Reply(False, None, b"", bytes(buf), None)
     sense = bytes(sense_buf[: hdr.sb_len_wr])
     ok = hdr.host_status == 0 and (hdr.driver_status & ~DRIVER_SENSE) == 0
-    if not ok:
+    if not ok and not quiet:
         print(f"  transport error: host_status={hdr.host_status:#x} "
               f"driver_status={hdr.driver_status:#x}", file=sys.stderr)
     return Reply(ok, hdr.status, sense, bytes(buf), hdr.resid)
@@ -178,23 +193,27 @@ def read_log(fd, log):
     return None
 
 
-def write_log(fd, log, block):
-    """Returns 'ok', 'rejected' or 'error'. Writes require explicit ATA success."""
+def write_log(fd, log, block, quiet=False):
+    """Returns 'ok', 'rejected' or 'error'. Writes require explicit ATA success.
+
+    quiet is only for the relink, which the real drive answers with plain GOOD
+    or with a disconnect."""
     nonzero = [i for i, b in enumerate(block) if b]
     if log == RELINK_LOG:
         assert not nonzero, "relink block must be all zero"
     else:
         assert all(32 <= i < 64 for i in nonzero), "payload must sit at 0x20..0x3F only"
     buf = bytearray(block)
-    r = sg_io(fd, ata_cdb(log, True), SG_DXFER_TO_DEV, buf)
+    r = sg_io(fd, ata_cdb(log, True), SG_DXFER_TO_DEV, buf, quiet)
     for i in range(len(buf)):
         buf[i] = 0
     if r.ok_transport and r.scsi_status == 2 and ata_sense_ok(r.sense):
         return "ok"
     if r.ok_transport and r.scsi_status == 2 and validation_rejected(r.sense):
         return "rejected"
-    print(f"  write log {log:#04x}: SCSI status={r.scsi_status}, {describe_sense(r.sense)}",
-          file=sys.stderr)
+    if not quiet:
+        print(f"  write log {log:#04x}: SCSI status={r.scsi_status}, "
+              f"{describe_sense(r.sense)}", file=sys.stderr)
     return "error"
 
 
@@ -263,60 +282,117 @@ def t5_disks():
             vendor = pathlib.Path(f"{blk}/device/vendor").read_text().strip()
             model = pathlib.Path(f"{blk}/device/model").read_text().strip()
             size = int(pathlib.Path(f"{blk}/size").read_text()) * 512
-        except OSError:
-            continue
-        if vendor == "Samsung" and model == "Portable SSD T5":
-            vid, pid = usb_ids(f"{blk}/device")
-            found.append((os.path.basename(blk), vid, pid, size))
+            if vendor == "Samsung" and model == "Portable SSD T5":
+                vid, pid = usb_ids(f"{blk}/device")
+                found.append((os.path.basename(blk), vid, pid, size))
+        except (OSError, ValueError):
+            continue  # the device went away or is half set up
     return found
 
 
 def find_locked():
     disks = t5_disks()
-    locked = [d for d in disks if d[1] == SAMSUNG_VID and d[2] == T5_LOCKED_PID]
     for name, vid, pid, size in disks:
         print(f"Found /dev/{name}: USB {vid}:{pid}, {size} bytes")
-    if len(locked) != 1:
-        die("Expected exactly one locked T5 (USB 04e8:61f6). Nothing was sent.")
+    locked = [d for d in disks if d[1] == SAMSUNG_VID and d[2] == T5_LOCKED_PID]
+    unlocked = [d for d in disks if d[1] == SAMSUNG_VID and d[2] == T5_UNLOCKED_PID]
+    if not disks:
+        die("No Samsung Portable SSD T5 found. Plug it in and wait a few seconds.",
+            EXIT_NOTHING_SENT)
+    if len(locked) > 1:
+        die(f"Found {len(locked)} locked T5 drives. Connect only one. Nothing was sent.",
+            EXIT_NOTHING_SENT)
+    if not locked:
+        if unlocked:
+            names = ", ".join(f"/dev/{d[0]}" for d in unlocked)
+            print(f"The T5 is already unlocked ({names}). Nothing to do.")
+            sys.exit(0)
+        die("A Samsung Portable SSD T5 was found, but it does not look like a locked "
+            f"drive (USB ID {SAMSUNG_VID}:{T5_LOCKED_PID} expected). Nothing was sent.",
+            EXIT_NOTHING_SENT)
     name, _, _, size = locked[0]
     if size > SETUP_MAX_BYTES:
-        die(f"/dev/{name} is {size} bytes, too big for a setup disk. Nothing was sent.")
+        die(f"/dev/{name} is {size} bytes, too big for a setup disk. Nothing was sent.",
+            EXIT_NOTHING_SENT)
     return f"/dev/{name}"
 
 
+def open_device(dev, exclusive=False):
+    flags = os.O_RDWR | os.O_NONBLOCK | (os.O_EXCL if exclusive else 0)
+    try:
+        return os.open(dev, flags)
+    except OSError as e:
+        if e.errno == errno.EBUSY:
+            reason = ("the setup volume is in use or was mounted again. "
+                      "Close file windows and try again")
+        else:
+            reason = e.strerror or str(e)
+        die(f"Cannot open {dev}: {reason}. Nothing was sent.", EXIT_NOTHING_SENT)
+
+
 def unmount_all(dev):
-    with open("/proc/mounts") as mounts:
-        mounted = [line.split()[0] for line in mounts if line.startswith(dev)]
-    for part in mounted:
+    try:
+        with open(MOUNTS) as mounts:
+            sources = [line.split()[0] for line in mounts if line.strip()]
+    except OSError as e:
+        die(f"Cannot read {MOUNTS}: {e.strerror}. Nothing was sent.", EXIT_NOTHING_SENT)
+    pattern = re.escape(dev) + r"\d*"
+    for part in [src for src in sources if re.fullmatch(pattern, src)]:
         print(f"Unmounting {part}")
-        if subprocess.run(["umount", part]).returncode != 0:
-            die(f"Could not unmount {part}. Nothing was sent.")
+        try:
+            failed = subprocess.run(["umount", part]).returncode != 0
+        except OSError as e:
+            die(f"Cannot run umount: {e.strerror}. Unmount {part} yourself and try again. "
+                "Nothing was sent.", EXIT_NOTHING_SENT)
+        if failed:
+            die(f"Could not unmount {part}. Nothing was sent.", EXIT_NOTHING_SENT)
 
 
-def wait_for_unlocked(timeout=60):
+def unlocked_disks():
+    return [(name, size) for name, vid, pid, size in t5_disks()
+            if vid == SAMSUNG_VID and pid == T5_UNLOCKED_PID and size > SETUP_MAX_BYTES]
+
+
+def wait_for_unlocked(before, timeout=60):
+    """Waits for an unlocked T5 disk whose name was not in `before`."""
     print("Waiting for the drive to come back as the full-capacity disk ...")
     for _ in range(timeout * 2):
-        for name, vid, pid, size in t5_disks():
-            if vid == SAMSUNG_VID and pid == T5_UNLOCKED_PID and size > SETUP_MAX_BYTES:
+        for name, size in unlocked_disks():
+            if name not in before:
                 print(f"Unlocked T5 appeared: /dev/{name}, {size / 2**30:.1f} GiB")
-                subprocess.run(["lsblk", "-o", "NAME,SIZE,FSTYPE,LABEL", f"/dev/{name}"])
+                with contextlib.suppress(OSError):  # the listing is optional
+                    subprocess.run(["lsblk", "-o", "NAME,SIZE,FSTYPE,LABEL", f"/dev/{name}"])
                 return True
         time.sleep(0.5)
     return False
 
 
 def probe(dev):
-    fd = os.open(dev, os.O_RDWR | os.O_NONBLOCK)
+    fd = open_device(dev)
     try:
         if not inquiry_is_t5(fd):
-            die("INQUIRY did not identify a Samsung Portable SSD T5.")
+            die("INQUIRY did not identify a Samsung Portable SSD T5.", EXIT_PROBLEM)
         print("INQUIRY: Samsung Portable SSD T5")
         status = read_log(fd, STATUS_LOG)
         problem = check_status(status)
         if problem:
-            die(f"Status check failed: {problem}.")
+            die(f"Status check failed: {problem}.", EXIT_PROBLEM)
         print(f"Status OK: PSSD, protocol version {VERIFIED_VERSION:#010x}, hash scheme 0")
         print("Probe passed. The drive speaks the verified protocol. No password was sent.")
+    finally:
+        os.close(fd)
+
+
+def preflight(dev):
+    """Read-only identity and protocol check, before the password is asked for."""
+    fd = open_device(dev)
+    try:
+        if not inquiry_is_t5(fd):
+            die("INQUIRY did not identify a Samsung Portable SSD T5. "
+                "No password was asked or sent.", EXIT_PROBLEM)
+        problem = check_status(read_log(fd, STATUS_LOG))
+        if problem:
+            die(f"Status check failed: {problem}. No password was asked or sent.", EXIT_PROBLEM)
     finally:
         os.close(fd)
 
@@ -349,22 +425,26 @@ def unlock_sequence(fd, pw):
         return "no_fresh_challenge", ""
     if write_log(fd, UNLOCK_LOG, payload) != "ok":
         return "unlock_error", ""
-    write_log(fd, RELINK_LOG, bytearray(BLOCK))
+    write_log(fd, RELINK_LOG, bytearray(BLOCK), quiet=True)
     return "unlocked", ""
 
 
 def unlock(dev):
-    pw = getpass.getpass("T5 DRIVE password (not your Mac password): ").encode("utf-8")
+    if not sys.stdin.isatty():
+        die("A terminal is needed to type the password. Nothing was sent.", EXIT_NOTHING_SENT)
+    preflight(dev)
+    pw = getpass.getpass("T5 DRIVE password (not your login or sudo password): ").encode("utf-8")
     again = getpass.getpass("Repeat the T5 DRIVE password: ").encode("utf-8")
     if pw != again:
-        die("Passwords do not match. Nothing was sent.")
+        die("Passwords do not match. Nothing was sent.", EXIT_NOTHING_SENT)
     del again
     if not check_password(pw):
         die("Password must be 1-32 bytes of printable ASCII (no spaces) or Cyrillic. "
-            "Nothing was sent.")
+            "Nothing was sent.", EXIT_NOTHING_SENT)
 
     unmount_all(dev)
-    fd = os.open(dev, os.O_RDWR | os.O_NONBLOCK)
+    before = {name for name, _ in unlocked_disks()}
+    fd = open_device(dev, exclusive=True)
     try:
         outcome, detail = unlock_sequence(fd, pw)
     finally:
@@ -372,41 +452,69 @@ def unlock(dev):
         del pw
 
     if outcome == "not_t5":
-        die("INQUIRY did not identify a Samsung Portable SSD T5. Nothing was sent.")
+        die("INQUIRY did not identify a Samsung Portable SSD T5. Nothing was sent.", EXIT_PROBLEM)
     if outcome == "bad_status":
-        die(f"Status check failed: {detail}. No password was sent.")
+        die(f"Status check failed: {detail}. No password was sent.", EXIT_PROBLEM)
     if outcome == "no_challenge":
-        die("Could not read a usable challenge. No password was sent.")
+        die("Could not read a usable challenge. No password was sent.", EXIT_PROBLEM)
     if outcome == "rejected":
-        die("Wrong password: the drive rejected it. No unlock command was sent.", 2)
+        die("Wrong password: the drive rejected it. No unlock command was sent. "
+            "Do not try again until you are sure of the password. "
+            "The drive's behavior after several wrong passwords is unknown.", EXIT_WRONG_PASSWORD)
     if outcome == "validation_unclear":
         die("Password validation failed at transport level (outcome unclear). "
-            "No unlock command was sent. Do not retry blindly.")
+            "No unlock command was sent. Do not retry blindly.", EXIT_PROBLEM)
     if outcome == "no_fresh_challenge":
-        die("Could not read a fresh challenge for the unlock step. No unlock command was sent.")
+        die("Could not read a fresh challenge for the unlock step. "
+            "No unlock command was sent.", EXIT_PROBLEM)
     if outcome == "unlock_error":
-        print("Unlock returned an error; checking for the data disk anyway, no relink sent.",
-              file=sys.stderr)
-    else:
-        print("Password accepted by the drive.")
-        print("Unlock sent, then relink sent (a disconnect here is expected).")
+        die("Unlock did not report success. No relink was sent. "
+            "Unplug and replug the drive, then check with lsblk.", EXIT_PROBLEM)
 
-    if not wait_for_unlocked():
+    print("Password accepted by the drive.")
+    print("Unlock sent, then relink sent (a disconnect here is expected).")
+    if not wait_for_unlocked(before):
         die("The unlocked disk did not show up within 60 s. Replug the drive and check lsblk; "
-            "it stays unlocked only while powered.")
+            "it stays unlocked only while powered.", EXIT_NO_DISK)
+
+
+EXIT_CODES = """exit codes:
+  0    success, or the drive is already unlocked
+  2    no usable drive, or nothing was sent
+  3    transport, identity or unlock problem
+  4    wrong password
+  5    the unlocked disk did not appear
+  64   usage error
+  77   not run as root
+  130  interrupted
+"""
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(EXIT_USAGE, f"{self.prog}: error: {message}\n")
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = Parser(
+        description=__doc__, epilog=EXIT_CODES,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", action="version", version=f"t5-unlock {VERSION}")
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--probe", action="store_true", help="read-only check, no password")
     mode.add_argument("--unlock", action="store_true", help="one unlock attempt")
     args = ap.parse_args()
-    if os.geteuid() != 0:
-        die("Run as root (sudo).")
-    dev = find_locked()
-    probe(dev) if args.probe else unlock(dev)
+    try:
+        if os.geteuid() != 0:
+            die("Run as root (sudo).", EXIT_NOT_ROOT)
+        dev = find_locked()
+        if args.probe:
+            probe(dev)
+        else:
+            unlock(dev)
+    except (KeyboardInterrupt, EOFError):
+        die("Aborted.", EXIT_INTERRUPTED)
 
 
 if __name__ == "__main__":
