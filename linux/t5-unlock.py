@@ -320,6 +320,38 @@ def probe(dev):
         os.close(fd)
 
 
+def unlock_sequence(fd, pw):
+    """The whole drive conversation, with no prompts, unmounting or waiting.
+
+    Returns (outcome, detail). It never loops and never retries: every command is
+    sent at most once, and nothing is sent after the first problem.
+    """
+    if not inquiry_is_t5(fd):
+        return "not_t5", ""
+    problem = check_status(read_log(fd, STATUS_LOG))
+    if problem:
+        return "bad_status", problem
+
+    challenge = read_log(fd, CHALLENGE_LOG)
+    payload = make_payload(pw, challenge) if challenge else None
+    if payload is None:
+        return "no_challenge", ""
+    result = write_log(fd, VALIDATE_LOG, payload)
+    if result == "rejected":
+        return "rejected", ""
+    if result != "ok":
+        return "validation_unclear", ""
+
+    challenge = read_log(fd, CHALLENGE_LOG)
+    payload = make_payload(pw, challenge) if challenge else None
+    if payload is None:
+        return "no_fresh_challenge", ""
+    if write_log(fd, UNLOCK_LOG, payload) != "ok":
+        return "unlock_error", ""
+    write_log(fd, RELINK_LOG, bytearray(BLOCK))
+    return "unlocked", ""
+
+
 def unlock(dev):
     pw = getpass.getpass("T5 password: ").encode("utf-8")
     again = getpass.getpass("Repeat password: ").encode("utf-8")
@@ -333,37 +365,30 @@ def unlock(dev):
     unmount_all(dev)
     fd = os.open(dev, os.O_RDWR | os.O_NONBLOCK)
     try:
-        if not inquiry_is_t5(fd):
-            die("INQUIRY did not identify a Samsung Portable SSD T5. Nothing was sent.")
-        problem = check_status(read_log(fd, STATUS_LOG))
-        if problem:
-            die(f"Status check failed: {problem}. No password was sent.")
-
-        challenge = read_log(fd, CHALLENGE_LOG)
-        payload = make_payload(pw, challenge) if challenge else None
-        if payload is None:
-            die("Could not read a usable challenge. No password was sent.")
-        result = write_log(fd, VALIDATE_LOG, payload)
-        if result == "rejected":
-            die("Wrong password: the drive rejected it. No unlock command was sent.", 2)
-        if result != "ok":
-            die("Password validation failed at transport level (outcome unclear). "
-                "No unlock command was sent. Do not retry blindly.")
-        print("Password accepted by the drive.")
-
-        challenge = read_log(fd, CHALLENGE_LOG)
-        payload = make_payload(pw, challenge) if challenge else None
-        if payload is None:
-            die("Could not read a fresh challenge for the unlock step. No unlock command was sent.")
-        if write_log(fd, UNLOCK_LOG, payload) != "ok":
-            print("Unlock returned an error; checking for the data disk anyway, no relink sent.",
-                  file=sys.stderr)
-        else:
-            print("Unlock sent. Sending relink (a disconnect here is expected).")
-            write_log(fd, RELINK_LOG, bytearray(BLOCK))
+        outcome, detail = unlock_sequence(fd, pw)
     finally:
         os.close(fd)
         del pw
+
+    if outcome == "not_t5":
+        die("INQUIRY did not identify a Samsung Portable SSD T5. Nothing was sent.")
+    if outcome == "bad_status":
+        die(f"Status check failed: {detail}. No password was sent.")
+    if outcome == "no_challenge":
+        die("Could not read a usable challenge. No password was sent.")
+    if outcome == "rejected":
+        die("Wrong password: the drive rejected it. No unlock command was sent.", 2)
+    if outcome == "validation_unclear":
+        die("Password validation failed at transport level (outcome unclear). "
+            "No unlock command was sent. Do not retry blindly.")
+    if outcome == "no_fresh_challenge":
+        die("Could not read a fresh challenge for the unlock step. No unlock command was sent.")
+    if outcome == "unlock_error":
+        print("Unlock returned an error; checking for the data disk anyway, no relink sent.",
+              file=sys.stderr)
+    else:
+        print("Password accepted by the drive.")
+        print("Unlock sent, then relink sent (a disconnect here is expected).")
 
     if not wait_for_unlocked():
         die("The unlocked disk did not show up within 60 s. Replug the drive and check lsblk; "

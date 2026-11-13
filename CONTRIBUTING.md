@@ -24,11 +24,15 @@ get to their own data when the vendor's tool no longer runs. Keep it that way.
 
 ## 🔧 Rules for changes
 
-- 🛡️ Do not weaken the checks that run before a password is sent.
+- 🛡️ Do not weaken the checks that run before a password is sent. The mock-drive tests
+  (`linux/test_mock_drive.py` and the `mock:` checks in the C self-test) enforce the
+  safety rules. If you change the unlock flow, extend them; never loosen them to make
+  a change pass.
 - ✅ Keep the checks passing. None of them needs a drive:
-  - `ruff check linux` and `python3 linux/test_offline.py`
-  - `make -C macos check` (self-test, strict warnings as errors, AddressSanitizer and
-    UndefinedBehaviorSanitizer, cppcheck). Needs `brew install libusb cppcheck`.
+  - `ruff check linux`, `python3 linux/test_offline.py` and `python3 linux/test_mock_drive.py`
+  - `make -C macos check` (self-test including the mock-drive safety tests, strict
+    warnings as errors, AddressSanitizer and UndefinedBehaviorSanitizer, cppcheck).
+    Needs `brew install libusb cppcheck`.
   - `markdownlint-cli2` for the docs
   - GitHub Actions runs all of these, plus CodeQL, on every push and pull request.
 - 🔒 Do not include drive contents, serial numbers or personal data in issues or commits.

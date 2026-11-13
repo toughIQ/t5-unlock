@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in the tools or docs is wrong, other than a security problem.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security problem (password exposure, a broken safety rule), use the private
+        link on the previous page instead. **Never paste your password or serial number.**
+  - type: textarea
+    id: what
+    attributes:
+      label: What went wrong?
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Computer and operating system
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Tool version
+      description: The commit from `git log -1 --format=%h`, or the date you downloaded the ZIP.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      render: text
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: I did not include my password, serial number or any private data.
+          required: true

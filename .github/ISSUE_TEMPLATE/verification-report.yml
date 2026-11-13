@@ -1,0 +1,80 @@
+name: Verification report
+description: Tell us how it went on your drive and computer, whether it worked or not.
+title: "Report: <drive> on <OS>"
+labels: ["verification"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Reports from other setups are the most useful thing you can give.
+        **Never paste your password, and remove serial numbers** from anything you share.
+        `--probe` output is safe: it contains no password.
+  - type: dropdown
+    id: result
+    attributes:
+      label: What happened?
+      options:
+        - Unlock worked and the drive mounted
+        - Probe passed, I did not try the unlock
+        - The tool refused my drive (protocol or identity mismatch)
+        - The drive rejected my password (I am sure it was right)
+        - Something else went wrong
+    validations:
+      required: true
+  - type: input
+    id: drive
+    attributes:
+      label: Drive model
+      description: For example "Samsung Portable SSD T5 500 GB". Say if it is not an original T5.
+    validations:
+      required: true
+  - type: input
+    id: usbid
+    attributes:
+      label: USB vendor and product ID while locked
+      description: From the README commands. A locked original T5 shows 04e8:61f6.
+      placeholder: "04e8:61f6"
+  - type: input
+    id: host
+    attributes:
+      label: Computer and operating system
+      description: For example "MacBook Air M2, macOS 15.4" or "Ubuntu 24.04 on x86-64".
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Tool version
+      description: The commit from `git log -1 --format=%h`, or the date you downloaded the ZIP.
+    validations:
+      required: true
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which tool?
+      options:
+        - macOS (C tool)
+        - Linux (Python script)
+        - Linux virtual machine on a Mac
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output of `--probe` or `--unlock`
+      description: Paste it without your password or serial number. No drive password is ever printed.
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: USB port or hub, cable, anything unusual.
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: I did not include my password, serial number or any private data.
+          required: true
+        - label: This is a drive I own, and I used my own password.
+          required: true

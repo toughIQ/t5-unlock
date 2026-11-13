@@ -10,6 +10,37 @@ Unlock your own password-protected **Samsung Portable SSD T5** on current macOS
 > "Portable SSD T5" are trademarks of their owners. They are used here only to
 > say which drive this tool works with.
 
+## 🩺 Is this for you?
+
+You are probably in the right place if all of these fit:
+
+- ✅ You own a **Samsung Portable SSD T5** and you set a password on it years ago
+- ✅ You **know the password**
+- ✅ On your computer the drive shows only a tiny volume called **`T5_SETUP`** (about
+  40 to 90 MB), and your files are not visible
+- ✅ The Samsung unlock app that sits on that volume does not start, is "damaged",
+  asks for a driver you cannot allow, or simply does nothing on your new computer
+
+That tiny volume is how the drive looks while it is locked. Your data is still there.
+
+You can check that it is the same drive. While the T5 is plugged in and locked:
+
+```sh
+# macOS
+system_profiler SPUSBHostDataType | grep -E "Portable SSD|Vendor ID|Product ID|Link Speed"
+
+# Linux
+lsusb | grep 04e8
+```
+
+A locked original T5 reports USB vendor `0x04e8` and product **`0x61f6`**. After a
+successful unlock it reports `0x61f5`. Anything else is a different drive or state, and
+the tools will refuse it. Do not post the serial number if you share this output.
+
+> 📌 **Not a fit?** If you forgot the password, this tool cannot help (see the
+> [FAQ](docs/faq.md)). If your drive is another model, such as a T3, T7, T9 or a T5
+> EVO, it may behave differently and has not been tested. Windows is not covered.
+
 ## 🎯 What this is, and what it is not
 
 - ✅ It performs the same standard password check the vendor's own unlock app performed:
@@ -31,8 +62,9 @@ Unlock your own password-protected **Samsung Portable SSD T5** on current macOS
 The original T5 shipped with a small read-only setup volume (`T5_SETUP`) holding
 Samsung's unlock app. On a current Mac that app no longer works: the 2017 installer
 is Intel-only and depends on a kernel extension, which Apple Silicon Macs do not
-load by default. A Linux version never existed. To our knowledge there is no updated
-official tool for the original T5. If Samsung publishes one, use it instead.
+load by default. A Linux version never existed. As of November 2026 we found no
+official Samsung tool for the original T5 that runs on current macOS or Linux. If you
+find one, use it instead.
 
 So a locked T5 on a modern computer shows only the tiny setup volume and the data
 stays out of reach, even for its legitimate owner. This repo is for those owners.
@@ -46,13 +78,17 @@ Verified on **one** setup. Treat everything else as unverified.
 | ✅ Drive | One Samsung Portable SSD T5, USB `04e8:61f6` when locked and `04e8:61f5` when unlocked, protocol version `0x00010103`, hash scheme 0 |
 | ✅ macOS tool | macOS 27.2, Apple Silicon (M5 Pro), libusb 1.0.30, drive on a USB 3 port |
 | ✅ Linux tool | Fedora 44 (aarch64, in a UTM virtual machine with USB passthrough), Python 3 standard library only |
-| ⚠️ Not verified | Other T5 units or firmware, T3, T7, T9 and other drives, Intel Macs, other macOS versions, other Linux distributions, USB 2 links |
+| ✅ Safety rules | Mock-drive tests in CI check that a rejected password never leads to an unlock, nothing is retried, and unverified drives get no password data. They run without a drive. |
+| ⚠️ Pending | Both tools were restructured after their real-drive runs (to make the mock tests possible). Behaviour is meant to be identical, and the offline and mock tests pass, but a fresh run on a real drive has not been done yet. |
+| ⚠️ Not verified | Other T5 units or firmware, T3, T7, T9 and other drives, Windows, Intel Macs, other macOS versions, other Linux distributions, USB 2 links |
 
 The tools check the drive's identity and protocol version first and stop if anything
-differs. Offline self-tests (no drive needed) check the hash against published test
-vectors, the exact command bytes, password rules and reply parsing.
+differs. Offline self-tests check the hash against published test vectors, the exact
+command bytes, password rules and reply parsing.
 
 ## 🍎 Quick start: macOS (Apple Silicon)
+
+New to Terminal? Follow the [step-by-step guide](docs/step-by-step-macos.md).
 
 You need Homebrew, the Xcode Command Line Tools and a USB 3 port and cable.
 
@@ -110,6 +146,19 @@ The unlock is a short vendor-specific exchange carried in standard ATA pass-thro
 commands. The password never leaves your computer in clear text: it is hashed with a
 challenge the drive provides. Full description, command bytes and reply formats:
 [docs/how-it-works.md](docs/how-it-works.md).
+
+## ❓ Questions
+
+Forgot the password? Different drive? Windows? Is it safe? How many attempts do I
+get? See the [FAQ](docs/faq.md).
+
+## 💬 Did it work for you?
+
+Reports from other setups are the most useful thing you can give. Whether it worked,
+stopped with a message, or refused your drive, please open a
+[verification report](https://github.com/toughIQ/t5-unlock/issues/new/choose). The
+`--probe` output is safe to share (it contains no password), but leave out any serial
+number.
 
 ## 🔌 Other drives and vendors
 

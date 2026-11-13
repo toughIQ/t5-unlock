@@ -58,7 +58,7 @@ T5 password:                       <- the drive's password
 Repeat password:                   <- the drive's password again
 Unmounting setup disk disk4.
 Password accepted by the drive.
-Unlock sent. Sending relink (a disconnect here is expected).
+Unlock sent, then relink sent (a disconnect here is expected).
 Relink gave no clean reply (normal while the drive re-enumerates).
 Waiting for the drive to come back as the full-capacity disk ...
 Unlocked T5 appeared: /dev/disk4, 931.5 GiB.

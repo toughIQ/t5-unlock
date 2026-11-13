@@ -223,14 +223,17 @@ out:
     return res;
 }
 
-typedef struct { libusb_context *ctx; libusb_device_handle *h; unsigned seq; } session_t;
+/* The transport is a function pointer so --selftest can put a fake drive behind it. */
+typedef uas_result (*uas_fn)(libusb_context *ctx, libusb_device_handle *h, const uint8_t cdb[16],
+                             uint16_t tag, int write, uint8_t *buf, int want);
+typedef struct { libusb_context *ctx; libusb_device_handle *h; unsigned seq; uas_fn run; } session_t;
 
 static uint16_t next_tag(session_t *s) { return (uint16_t)(1 + (s->seq++ & 1)); }
 
 static int read_log(session_t *s, uint8_t log, uint8_t block[BLOCK]) {
     uint8_t cdb[16];
     ata_cdb(log, 0, cdb);
-    uas_result r = uas_run(s->ctx, s->h, cdb, next_tag(s), 0, block, BLOCK);
+    uas_result r = s->run(s->ctx, s->h, cdb, next_tag(s), 0, block, BLOCK);
     if (!r.transport_ok) return 0;
     return r.scsi_status == 0 || (r.scsi_status == 2 && ata_sense_ok(r.sense, r.sense_len));
 }
@@ -241,7 +244,7 @@ static write_result write_log(session_t *s, uint8_t log, const uint8_t block[BLO
     uint8_t cdb[16], copy[BLOCK];
     ata_cdb(log, 1, cdb);
     memcpy(copy, block, BLOCK);
-    uas_result r = uas_run(s->ctx, s->h, cdb, next_tag(s), 1, copy, BLOCK);
+    uas_result r = s->run(s->ctx, s->h, cdb, next_tag(s), 1, copy, BLOCK);
     zero(copy, sizeof copy);
     if (r.transport_ok && r.scsi_status == 2 && ata_sense_ok(r.sense, r.sense_len)) return WR_OK;
     if (r.transport_ok && r.scsi_status == 2 && validation_rejected(r.sense, r.sense_len)) return WR_REJECTED;
@@ -250,7 +253,7 @@ static write_result write_log(session_t *s, uint8_t log, const uint8_t block[BLO
 
 static int inquiry_is_t5(session_t *s) {
     uint8_t cdb[16] = {0x12, 0, 0, 0, 36, 0}, d[36] = {0};
-    uas_result r = uas_run(s->ctx, s->h, cdb, next_tag(s), 0, d, 36);
+    uas_result r = s->run(s->ctx, s->h, cdb, next_tag(s), 0, d, 36);
     return r.transport_ok && r.scsi_status == 0 && d[0] == 0 && memcmp(d + 8, "Samsung ", 8) == 0 &&
            memcmp(d + 16, "Portable SSD T5 ", 16) == 0;
 }
@@ -453,7 +456,7 @@ static int do_probe(void) {
     usb_t u;
     int rc = 3;
     if (usb_open(&u)) {
-        session_t s = {u.ctx, u.h, 0};
+        session_t s = {u.ctx, u.h, 0, uas_run};
         uint8_t status[BLOCK] = {0};
         const char *problem = NULL;
         if (!inquiry_is_t5(&s)) puts("INQUIRY did not identify a Samsung Portable SSD T5.");
@@ -468,6 +471,39 @@ static int do_probe(void) {
     usb_close(&u);
     puts("The drive may drop off the USB list after a probe. Replug it before unlocking.");
     return rc;
+}
+
+/* The whole drive conversation: no prompts, unmounting or waiting. It never loops and never
+ * retries. Every command is sent at most once and nothing is sent after the first problem. */
+typedef enum {
+    UO_UNLOCKED, UO_UNLOCK_ERROR, UO_NOT_T5, UO_NO_STATUS, UO_BAD_STATUS, UO_NO_CHALLENGE,
+    UO_REJECTED, UO_VALIDATION_UNCLEAR, UO_INTERRUPTED, UO_NO_FRESH_CHALLENGE
+} unlock_outcome;
+
+static unlock_outcome unlock_sequence(session_t *s, const uint8_t *pw, size_t len, const char **detail,
+                                      int *relink_clean) {
+    uint8_t block[BLOCK] = {0}, challenge[BLOCK] = {0};
+    unlock_outcome out;
+    write_result w;
+    *detail = "";
+    *relink_clean = 1;
+    if (!inquiry_is_t5(s)) { out = UO_NOT_T5; goto end; }
+    if (!read_log(s, LOG_STATUS, block)) { out = UO_NO_STATUS; goto end; }
+    if ((*detail = check_status(block)) != NULL) { out = UO_BAD_STATUS; goto end; }
+    if (!read_log(s, LOG_CHALLENGE, challenge) || !make_payload(pw, len, challenge, block)) { out = UO_NO_CHALLENGE; goto end; }
+    w = write_log(s, LOG_VALIDATE, block);
+    if (w == WR_REJECTED) { out = UO_REJECTED; goto end; }
+    if (w != WR_OK) { out = UO_VALIDATION_UNCLEAR; goto end; }
+    if (interrupted) { out = UO_INTERRUPTED; goto end; }
+    if (!read_log(s, LOG_CHALLENGE, challenge) || !make_payload(pw, len, challenge, block)) { out = UO_NO_FRESH_CHALLENGE; goto end; }
+    if (write_log(s, LOG_UNLOCK, block) != WR_OK) { out = UO_UNLOCK_ERROR; goto end; }
+    memset(block, 0, BLOCK);
+    *relink_clean = write_log(s, LOG_RELINK, block) == WR_OK;
+    out = UO_UNLOCKED;
+end:
+    zero(block, sizeof block);
+    zero(challenge, sizeof challenge);
+    return out;
 }
 
 static int do_unlock(void) {
@@ -495,48 +531,38 @@ static int do_unlock(void) {
     usb_t u;
     int rc = 3;
     int sent_unlock = 0;
-    uint8_t block[BLOCK] = {0}, challenge[BLOCK] = {0};
-    session_t s;
-    const char *problem;
-    write_result w;
-    if (!usb_open(&u)) goto done;
-    s = (session_t){u.ctx, u.h, 0};
-    if (!inquiry_is_t5(&s)) { fputs("INQUIRY did not identify a Samsung Portable SSD T5. No password was sent.\n", stderr); goto done; }
-    if (!read_log(&s, LOG_STATUS, block)) { fputs("Could not read the drive status. No password was sent.\n", stderr); goto done; }
-    problem = check_status(block);
-    if (problem) { fprintf(stderr, "Status check failed: %s. No password was sent.\n", problem); goto done; }
-
-    if (!read_log(&s, LOG_CHALLENGE, challenge) || !make_payload(pw, len, challenge, block)) {
-        fputs("Could not get a usable challenge. No password was sent.\n", stderr);
-        goto done;
+    if (usb_open(&u)) {
+        session_t s = {u.ctx, u.h, 0, uas_run};
+        const char *detail = "";
+        int relink_clean = 1;
+        unlock_outcome o = unlock_sequence(&s, pw, len, &detail, &relink_clean);
+        if (o == UO_UNLOCKED || o == UO_UNLOCK_ERROR || o == UO_INTERRUPTED || o == UO_NO_FRESH_CHALLENGE)
+            puts("Password accepted by the drive.");
+        switch (o) {
+        case UO_NOT_T5: fputs("INQUIRY did not identify a Samsung Portable SSD T5. No password was sent.\n", stderr); break;
+        case UO_NO_STATUS: fputs("Could not read the drive status. No password was sent.\n", stderr); break;
+        case UO_BAD_STATUS: fprintf(stderr, "Status check failed: %s. No password was sent.\n", detail); break;
+        case UO_NO_CHALLENGE: fputs("Could not get a usable challenge. No password was sent.\n", stderr); break;
+        case UO_REJECTED: fputs("Wrong password: the drive rejected it. No unlock command was sent.\n", stderr); rc = 4; break;
+        case UO_VALIDATION_UNCLEAR:
+            fputs("Password validation failed at transport level (outcome unclear). No unlock command was sent. Do not retry blindly.\n", stderr);
+            break;
+        case UO_INTERRUPTED: fputs("Interrupted before the unlock command. Nothing unlocked.\n", stderr); break;
+        case UO_NO_FRESH_CHALLENGE: fputs("Could not read a fresh challenge. No unlock command was sent.\n", stderr); break;
+        case UO_UNLOCK_ERROR:
+            fputs("Unlock returned an error; checking for the data disk anyway, no relink sent.\n", stderr);
+            sent_unlock = 1;
+            rc = 0;
+            break;
+        case UO_UNLOCKED:
+            puts("Unlock sent, then relink sent (a disconnect here is expected).");
+            if (!relink_clean) puts("Relink gave no clean reply (normal while the drive re-enumerates).");
+            sent_unlock = 1;
+            rc = 0;
+            break;
+        }
     }
-    w = write_log(&s, LOG_VALIDATE, block);
-    if (w == WR_REJECTED) { fputs("Wrong password: the drive rejected it. No unlock command was sent.\n", stderr); rc = 4; goto done; }
-    if (w != WR_OK) {
-        fputs("Password validation failed at transport level (outcome unclear). No unlock command was sent. Do not retry blindly.\n", stderr);
-        goto done;
-    }
-    puts("Password accepted by the drive.");
-    if (interrupted) { fputs("Interrupted before the unlock command. Nothing unlocked.\n", stderr); goto done; }
-
-    if (!read_log(&s, LOG_CHALLENGE, challenge) || !make_payload(pw, len, challenge, block)) {
-        fputs("Could not read a fresh challenge. No unlock command was sent.\n", stderr);
-        goto done;
-    }
-    w = write_log(&s, LOG_UNLOCK, block);
-    sent_unlock = 1;
-    if (w != WR_OK) {
-        fputs("Unlock returned an error; checking for the data disk anyway, no relink sent.\n", stderr);
-    } else {
-        puts("Unlock sent. Sending relink (a disconnect here is expected).");
-        memset(block, 0, BLOCK);
-        if (write_log(&s, LOG_RELINK, block) != WR_OK) puts("Relink gave no clean reply (normal while the drive re-enumerates).");
-    }
-    rc = 0;
-done:
     zero(pw, sizeof pw);
-    zero(block, sizeof block);
-    zero(challenge, sizeof challenge);
     usb_close(&u);
     if (!sent_unlock) return rc;
 
@@ -557,6 +583,154 @@ static int fails;
 static void check(int ok, const char *what) { if (!ok) { printf("FAIL: %s\n", what); fails++; } }
 
 static void hex32(const uint8_t *p, char out[65]) { for (int i = 0; i < 32; i++) snprintf(out + 2 * i, 3, "%02x", p[i]); }
+
+/* ---------- fake drive for the safety-rule tests ---------- */
+
+enum { FK_OK, FK_REJECT, FK_GARBAGE, FK_TRANSPORT };
+enum { C_INQUIRY = 0x100, C_READ = 0x200, C_WRITE = 0x300 };
+
+static struct {
+    int validate, unlock, relink;            /* F_* behaviour per write */
+    int bad_version, empty_challenge, wrong_inquiry;
+    int cmds[32], ncmds;                     /* C_INQUIRY, C_READ|log, C_WRITE|log */
+    int leaked, malformed;                   /* password in clear / payload outside 0x20..0x3f */
+    const uint8_t *pw;
+    size_t pwlen;
+} fake;
+
+static void fake_reset(const uint8_t *pw, size_t pwlen) {
+    memset(&fake, 0, sizeof fake);
+    fake.pw = pw;
+    fake.pwlen = pwlen;
+}
+
+static uas_result fake_run(libusb_context *ctx, libusb_device_handle *h, const uint8_t cdb[16], uint16_t tag,
+                           int write, uint8_t *buf, int want) {
+    static const uint8_t ok_sense[22] = {0x72, 0x01, 0x00, 0x1D, 0, 0, 0, 14, 0x09, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x50};
+    static const uint8_t rej_sense[22] = {0x72, 0x0B, 0x00, 0x00, 0, 0, 0, 14, 0x09, 0x0C, 0, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x51};
+    static const uint8_t bad_sense[22] = {0x70, 0x05, 0, 0, 0, 0, 0, 10};
+    uas_result r = {0, 0xff, {0}, 0, 0};
+    (void)ctx; (void)h; (void)tag; (void)write;
+    if (fake.ncmds >= 32) { fake.malformed = 1; return r; }
+    if (cdb[0] == 0x12) {
+        fake.cmds[fake.ncmds++] = C_INQUIRY;
+        memset(buf, 0, (size_t)want);
+        memcpy(buf + 8, fake.wrong_inquiry ? "Other   Vendor Disk    " : "Samsung Portable SSD T5 ", 24);
+        r.transport_ok = 1;
+        r.scsi_status = 0;
+        r.data_len = want;
+        return r;
+    }
+    uint8_t log = cdb[8];
+    if (cdb[1] != 0x0A) {
+        fake.cmds[fake.ncmds++] = C_READ | log;
+        memset(buf, 0, BLOCK);
+        if (log == LOG_STATUS) {
+            memcpy(buf + 0x20, "PSSD", 4);
+            buf[0x24] = fake.bad_version ? 0x00 : 0x03;
+            buf[0x25] = fake.bad_version ? 0x00 : 0x01;
+            buf[0x26] = fake.bad_version ? 0x02 : 0x01;
+        } else if (!fake.empty_challenge) {
+            for (int i = 0; i < BLOCK; i++) buf[i] = (uint8_t)((i * 7 + 3) % 256);
+        }
+        r.transport_ok = 1;
+        r.scsi_status = 0;
+        r.data_len = BLOCK;
+        return r;
+    }
+    fake.cmds[fake.ncmds++] = C_WRITE | log;
+    if (fake.pw && fake.pwlen && memmem(buf, BLOCK, fake.pw, fake.pwlen)) fake.leaked = 1;
+    for (int i = 0; i < BLOCK; i++)
+        if (buf[i] && (log == LOG_RELINK || i < 0x20 || i >= 0x40)) fake.malformed = 1;
+    int how = log == LOG_VALIDATE ? fake.validate : log == LOG_UNLOCK ? fake.unlock : fake.relink;
+    r.data_len = BLOCK;
+    if (how == FK_TRANSPORT) return r;
+    r.transport_ok = 1;
+    r.scsi_status = 2;
+    r.sense_len = 22;
+    memcpy(r.sense, how == FK_OK ? ok_sense : how == FK_REJECT ? rej_sense : bad_sense, 22);
+    return r;
+}
+
+static unlock_outcome run_fake(const uint8_t *pw, size_t pwlen) {
+    session_t s = {NULL, NULL, 0, fake_run};
+    const char *detail = "";
+    int relink_clean = 1;
+    return unlock_sequence(&s, pw, pwlen, &detail, &relink_clean);
+}
+
+static int fake_count(int cmd) {
+    int n = 0;
+    for (int i = 0; i < fake.ncmds; i++) n += fake.cmds[i] == cmd;
+    return n;
+}
+
+static int fake_writes(void) {
+    int n = 0;
+    for (int i = 0; i < fake.ncmds; i++) n += (fake.cmds[i] & 0xF00) == C_WRITE;
+    return n;
+}
+
+static void safety_tests(void) {
+    const uint8_t *pw = (const uint8_t *)"Correct-Horse_42";
+    const size_t pl = 16;
+    unlock_outcome o;
+
+    fake_reset(pw, pl);
+    o = run_fake(pw, pl);
+    const int want[] = {C_INQUIRY, C_READ | LOG_STATUS, C_READ | LOG_CHALLENGE, C_WRITE | LOG_VALIDATE,
+                        C_READ | LOG_CHALLENGE, C_WRITE | LOG_UNLOCK, C_WRITE | LOG_RELINK};
+    check(o == UO_UNLOCKED, "mock: happy path unlocks");
+    check(fake.ncmds == 7 && memcmp(fake.cmds, want, sizeof want) == 0, "mock: exact command sequence, each sent once");
+    check(!fake.leaked && !fake.malformed, "mock: password never in clear, payload only at 0x20..0x3f");
+
+    fake_reset(pw, pl);
+    fake.validate = FK_REJECT;
+    o = run_fake(pw, pl);
+    check(o == UO_REJECTED, "mock: rejected password reported");
+    check(fake_writes() == 1 && fake_count(C_WRITE | LOG_VALIDATE) == 1, "mock: rejection sends nothing after validate, no retry");
+
+    const int modes[] = {FK_GARBAGE, FK_TRANSPORT};
+    for (size_t i = 0; i < 2; i++) {
+        fake_reset(pw, pl);
+        fake.validate = modes[i];
+        o = run_fake(pw, pl);
+        check(o == UO_VALIDATION_UNCLEAR, "mock: unclear validation stops");
+        check(fake_writes() == 1 && fake_count(C_WRITE | LOG_VALIDATE) == 1, "mock: unclear validation, one attempt, no unlock");
+    }
+
+    fake_reset(pw, pl);
+    fake.unlock = FK_GARBAGE;
+    o = run_fake(pw, pl);
+    check(o == UO_UNLOCK_ERROR, "mock: unlock error reported");
+    check(fake_count(C_WRITE | LOG_UNLOCK) == 1 && fake_count(C_WRITE | LOG_RELINK) == 0, "mock: unlock error sends no relink, no retry");
+
+    fake_reset(pw, pl);
+    fake.relink = FK_TRANSPORT;
+    o = run_fake(pw, pl);
+    check(o == UO_UNLOCKED && fake_count(C_WRITE | LOG_RELINK) == 1, "mock: failed relink not fatal, not retried");
+
+    fake_reset(pw, pl);
+    fake.wrong_inquiry = 1;
+    o = run_fake(pw, pl);
+    check(o == UO_NOT_T5 && fake.ncmds == 1, "mock: wrong drive gets only an inquiry");
+
+    fake_reset(pw, pl);
+    fake.bad_version = 1;
+    o = run_fake(pw, pl);
+    check(o == UO_BAD_STATUS && fake_writes() == 0 && fake_count(C_READ | LOG_CHALLENGE) == 0,
+          "mock: unverified protocol version, nothing password related sent");
+
+    fake_reset(pw, pl);
+    fake.empty_challenge = 1;
+    o = run_fake(pw, pl);
+    check(o == UO_NO_CHALLENGE && fake_writes() == 0, "mock: empty challenge sends no writes");
+
+    fake_reset(pw, pl);
+    fake.validate = FK_TRANSPORT;
+    run_fake(pw, pl);
+    check(fake.ncmds <= 7 && !fake.malformed, "mock: command count is bounded");
+}
 
 static int do_selftest(void) {
     uint8_t ch[BLOCK], chr[BLOCK], out[BLOCK];
@@ -629,8 +803,10 @@ static int do_selftest(void) {
     ok_sense[21] = 0x51;
     check(!ata_sense_ok(ok_sense, 22), "ATA error bit refused");
 
+    safety_tests();
+
     if (fails) { printf("%d check(s) failed.\n", fails); return 1; }
-    puts("PASS: hash vectors, challenge fields, password guards, status, CDBs, sense parsing");
+    puts("PASS: hash vectors, challenge fields, password guards, status, CDBs, sense parsing, mock-drive safety rules");
     return 0;
 }
 

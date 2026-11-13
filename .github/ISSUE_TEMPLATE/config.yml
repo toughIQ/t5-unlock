@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/toughIQ/t5-unlock/security/advisories/new
+    about: Password exposure, broken safety rules, memory-safety bugs. Please do not open a public issue.
+  - name: Read the FAQ first
+    url: https://github.com/toughIQ/t5-unlock/blob/main/docs/faq.md
+    about: Forgot password, other drives, Windows, how many attempts, and more.
