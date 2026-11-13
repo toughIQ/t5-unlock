@@ -73,14 +73,17 @@ app on it.
 ## 8️⃣ Run the unlock
 
 ```sh
-sudo ./t5-unlock-mac --unlock
+sudo -p "Mac login password: " ./t5-unlock-mac --unlock
 ```
+
+(`-p` only relabels sudo's prompt so you can tell the two passwords apart.)
 
 You will be asked for two different passwords:
 
-- **First, `Password:`** is **your Mac login password**, asked by `sudo`. Nothing is
+- **First, `Mac login password:`** is **your Mac login password**, asked by `sudo`. Nothing is
   shown while you type.
-- **Then, `T5 password:` and `Repeat password:`** is the **drive's password**, entered
+- **Then, `T5 DRIVE password (not your Mac password):` and
+  `Repeat the T5 DRIVE password:`** is the **drive's password**, entered
   twice. If the two entries differ, nothing is sent to the drive.
 
 A normal run ends like this:

@@ -37,8 +37,8 @@ is the password of the administrator account you are logged in with. macOS has n
 separate root password by default. The tool needs these rights to take over the USB
 connection. It is the only thing `sudo` is used for.
 
-2️⃣ **The T5 password, twice**, asked by the tool itself (`T5 password:` and
-`Repeat password:`). This is the password you set on the drive. The second entry only
+2️⃣ **The T5 password, twice**, asked by the tool itself (`T5 DRIVE password (not your
+Mac password):` and `Repeat the T5 DRIVE password:`). This is the password you set on the drive. The second entry only
 guards against typos: if the two entries differ, nothing is sent, so a typo does not
 use up an attempt.
 
@@ -52,10 +52,10 @@ administrator, or use another computer.
 ## 📋 What a normal run looks like
 
 ```text
-Password:                          <- sudo: your Mac login password
+Mac login password:                          <- sudo: your Mac login password
 Found the locked T5 (setup disk /dev/disk4).
-T5 password:                       <- the drive's password
-Repeat password:                   <- the drive's password again
+T5 DRIVE password (not your Mac password):   <- the drive's password
+Repeat the T5 DRIVE password:                <- the drive's password again
 Unmounting setup disk disk4.
 Password accepted by the drive.
 Unlock sent, then relink sent (a disconnect here is expected).

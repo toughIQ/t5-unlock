@@ -511,8 +511,8 @@ static int do_unlock(void) {
     printf("Found the locked T5 (setup disk /dev/%s).\n", d.disk);
     uint8_t pw[PASSWORD_MAX + 2] = {0};
     char buf1[128], buf2[128];
-    if (!readpassphrase("T5 password: ", buf1, sizeof buf1, RPP_REQUIRE_TTY) ||
-        !readpassphrase("Repeat password: ", buf2, sizeof buf2, RPP_REQUIRE_TTY))
+    if (!readpassphrase("T5 DRIVE password (not your Mac password): ", buf1, sizeof buf1, RPP_REQUIRE_TTY) ||
+        !readpassphrase("Repeat the T5 DRIVE password: ", buf2, sizeof buf2, RPP_REQUIRE_TTY))
         die("Could not read the password from the terminal. Nothing was sent.", 2);
     size_t len = strlen(buf1);
     int same = strcmp(buf1, buf2) == 0;

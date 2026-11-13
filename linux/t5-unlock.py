@@ -354,8 +354,8 @@ def unlock_sequence(fd, pw):
 
 
 def unlock(dev):
-    pw = getpass.getpass("T5 password: ").encode("utf-8")
-    again = getpass.getpass("Repeat password: ").encode("utf-8")
+    pw = getpass.getpass("T5 DRIVE password (not your Mac password): ").encode("utf-8")
+    again = getpass.getpass("Repeat the T5 DRIVE password: ").encode("utf-8")
     if pw != again:
         die("Passwords do not match. Nothing was sent.")
     del again

@@ -98,7 +98,7 @@ brew install libusb
 git clone https://github.com/toughIQ/t5-unlock.git
 cd t5-unlock/macos
 make selftest
-sudo ./t5-unlock-mac --unlock
+sudo -p "Mac login password: " ./t5-unlock-mac --unlock
 ```
 
 Plug in the locked T5 first and wait for the small `T5_SETUP` volume. The tool finds
@@ -112,8 +112,8 @@ you to allow the accessory.
 > the computer. It is not a separate "root password"; macOS has none by default. The
 > tool needs administrator rights to take over the USB connection.
 >
-> 2️⃣ **The tool then asks for the T5's own password, twice** (`T5 password:` and
-> `Repeat password:`). The second entry only guards against typos, so a mistyped
+> 2️⃣ **The tool then asks for the T5's own password, twice** (`T5 DRIVE password (not your
+> Mac password):` and `Repeat the T5 DRIVE password:`). The second entry only guards against typos, so a mistyped
 > password does not use up an attempt. If the two entries differ, nothing is sent.
 >
 > Nothing is shown while you type either password.
