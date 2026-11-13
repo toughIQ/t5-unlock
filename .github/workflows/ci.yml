@@ -21,7 +21,7 @@ jobs:
       matrix:
         python: ["3.9", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -32,7 +32,7 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: brew install libusb cppcheck
       - name: selftest, strict warnings, sanitizers, cppcheck
         run: make -C macos check
@@ -42,7 +42,7 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: markdownlint
         run: npx --yes markdownlint-cli2@0.24.1
       - name: link check
@@ -54,7 +54,7 @@ jobs:
   workflows:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: actionlint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
