@@ -28,12 +28,34 @@ need Homebrew at run time.
 > was downloaded, macOS may quarantine it. Clear that yourself if you trust the build,
 > or build it on the target Mac.
 
+## 🔑 Which password is which
+
+You are asked for two different passwords, in this order:
+
+1️⃣ **Your Mac login password**, asked by `sudo` as soon as you run the command. This
+is the password of the administrator account you are logged in with. macOS has no
+separate root password by default. The tool needs these rights to take over the USB
+connection. It is the only thing `sudo` is used for.
+
+2️⃣ **The T5 password, twice**, asked by the tool itself (`T5 password:` and
+`Repeat password:`). This is the password you set on the drive. The second entry only
+guards against typos: if the two entries differ, nothing is sent, so a typo does not
+use up an attempt.
+
+Nothing is shown while you type either one. The T5 password is read directly from the
+terminal, is never written to disk or printed, and the tool wipes its own buffers after
+use (best effort, as with any program).
+
+If you are not an administrator on the Mac, `sudo` will refuse. In that case ask an
+administrator, or use another computer.
+
 ## 📋 What a normal run looks like
 
 ```
+Password:                          <- sudo: your Mac login password
 Found the locked T5 (setup disk /dev/disk4).
-T5 password:
-Repeat password:
+T5 password:                       <- the drive's password
+Repeat password:                   <- the drive's password again
 Unmounting setup disk disk4.
 Password accepted by the drive.
 Unlock sent. Sending relink (a disconnect here is expected).

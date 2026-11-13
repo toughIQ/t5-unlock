@@ -62,9 +62,21 @@ sudo ./t5-unlock-mac --unlock
 ```
 
 Plug in the locked T5 first and wait for the small `T5_SETUP` volume. The tool finds
-the drive, unmounts the setup volume, asks for your password twice (nothing is
-shown while you type), sends the check and the unlock, then waits for the full-size
-disk and mounts it. macOS may ask you to allow the accessory.
+the drive, unmounts the setup volume, asks for the drive password twice, sends the
+check and the unlock, then waits for the full-size disk and mounts it. macOS may ask
+you to allow the accessory.
+
+> 🔑 **You will be asked for two different passwords:**
+>
+> 1️⃣ **`sudo` asks first for your Mac login password**, the one you use to log in to
+> the computer. It is not a separate "root password"; macOS has none by default. The
+> tool needs administrator rights to take over the USB connection.
+>
+> 2️⃣ **The tool then asks for the T5's own password, twice** (`T5 password:` and
+> `Repeat password:`). The second entry only guards against typos, so a mistyped
+> password does not use up an attempt. If the two entries differ, nothing is sent.
+>
+> Nothing is shown while you type either password.
 
 `sudo ./t5-unlock-mac --probe` is a read-only check that sends no password. After a
 probe the drive drops off the USB list until you unplug and replug it.
@@ -80,8 +92,14 @@ sudo python3 linux/t5-unlock.py --probe     # read-only, no password
 sudo python3 linux/t5-unlock.py --unlock    # one attempt
 ```
 
-Needs Python 3 and root (it uses the `SG_IO` interface). Details, and a recipe for
-macOS users who prefer a Linux virtual machine: [docs/linux.md](docs/linux.md).
+Needs Python 3 and root (it uses the `SG_IO` interface).
+
+> 🔑 **Two different passwords here as well:** `sudo` first asks for **your own user
+> password** (the account that is allowed to use `sudo`). The script then asks for
+> the **T5 password twice**. Nothing is shown while you type.
+
+Details, and a recipe for macOS users who prefer a Linux virtual machine:
+[docs/linux.md](docs/linux.md).
 
 ## 🔧 How it works
 

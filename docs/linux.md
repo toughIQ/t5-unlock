@@ -23,6 +23,14 @@ The script unmounts the setup volume, validates the password, unlocks, sends the
 relink and waits for the full-size disk to appear, then shows it with `lsblk`.
 Mount it as usual afterwards.
 
+### 🔑 Which password is which
+
+1️⃣ **`sudo` asks for your own user password** (or run the script from a root shell).
+This gives the script the rights to talk to the disk device.
+
+2️⃣ **The script then asks for the T5 password twice.** The second entry only guards
+against typos: if the two differ, nothing is sent. Nothing is shown while you type.
+
 ## 🍎 macOS users: the virtual machine route
 
 If you prefer not to run the native macOS tool, a Linux virtual machine works. This
