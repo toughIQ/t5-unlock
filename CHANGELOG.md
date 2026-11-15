@@ -48,7 +48,8 @@ First public version, 0.1.0, prepared.
 
 - Verified on one drive (Samsung Portable SSD T5, USB `04e8:61f6`, protocol version
   `0x00010103`), on macOS 27.2 Apple Silicon and Fedora 44 aarch64 in a virtual machine.
-  The macOS re-run on 2026-11-13 passed on the restructured code. Later changes to both
-  tools have not been run on a drive yet, and the Linux run was an earlier version of the
-  script. See the Status table in the README.
+  The current macOS version unlocked and mounted the drive on 2026-11-15; its probe
+  hand-back has not been run on a drive. The Linux run was an earlier version of the
+  script, the current one has only been tested offline. See the Status table in the
+  README.
 - No Windows support.

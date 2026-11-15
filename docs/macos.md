@@ -1,9 +1,8 @@
 # 🍎 macOS notes
 
-Verified on macOS 27.2, Apple Silicon. A real-drive run on 2026-11-13 passed on the
-restructured code. Later changes (checks before the prompt, mount detection, handing the
-drive back after a probe, clearer messages) have not been run on a drive yet. See the
-Status table in the README. Intel Macs and other macOS versions are untested.
+Verified on macOS 27.2, Apple Silicon: the current version unlocked and mounted the drive
+on 2026-11-15. Not yet run on a drive: handing the drive back to macOS after `--probe`.
+See the Status table in the README. Intel Macs and other macOS versions are untested.
 
 ## ✅ Requirements
 
