@@ -37,8 +37,8 @@ First public version, 0.1.0, prepared.
 - macOS: no false "failed to mount" when macOS mounts the disk by itself, mount state is
   read from the system instead of trusting `diskutil`'s exit status.
 - macOS: no 60 second wait and no misleading replug advice after an unlock error.
-- macOS: tries to hand the drive back to macOS after a probe, and says so if it did not
-  come back.
+- macOS: hands the drive back to macOS after a probe, so it no longer vanishes until
+  replugged (verified on the tested drive), and says so if it does not come back.
 - Linux: unmounts only the exact device and its partitions (a name prefix could match an
   unrelated disk), refuses a setup volume that was mounted again, no Python tracebacks on
   Ctrl-C or open errors, no misleading error line for the relink reply.
@@ -48,8 +48,8 @@ First public version, 0.1.0, prepared.
 
 - Verified on one drive (Samsung Portable SSD T5, USB `04e8:61f6`, protocol version
   `0x00010103`), on macOS 27.2 Apple Silicon and Fedora 44 aarch64 in a virtual machine.
-  The current macOS version unlocked and mounted the drive on 2026-11-15; its probe
-  hand-back has not been run on a drive. The Linux run was an earlier version of the
-  script, the current one has only been tested offline. See the Status table in the
+  The current macOS version probed, unlocked and mounted the drive on 2026-11-15, and the
+  drive came back to macOS by itself after the probe. The Linux run was an earlier version
+  of the script, the current one has only been tested offline. See the Status table in the
   README.
 - No Windows support.

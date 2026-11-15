@@ -1,8 +1,8 @@
 # 🍎 macOS notes
 
-Verified on macOS 27.2, Apple Silicon: the current version unlocked and mounted the drive
-on 2026-11-15. Not yet run on a drive: handing the drive back to macOS after `--probe`.
-See the Status table in the README. Intel Macs and other macOS versions are untested.
+Verified on macOS 27.2, Apple Silicon: the current version probed, unlocked and mounted
+the drive on 2026-11-15, and the drive came back to macOS by itself after the probe. See
+the Status table in the README. Intel Macs and other macOS versions are untested.
 
 ## ✅ Requirements
 
@@ -82,8 +82,8 @@ means the drive did not receive any password data.
   original cable. Avoid hubs and adapters.
 - **"The drive may have dropped off the USB connection"**: after a probe or a failed
   attempt the drive sometimes disconnects itself. Unplug it and plug it back in. After a
-  probe the tool waits up to 15 seconds for the drive to return; a slow return can still
-  show this hint.
+  probe the tool waits up to 15 seconds for the drive to return (on the tested drive it
+  came back by itself); a slow return can still show this hint.
 - **"Wrong password: the drive rejected it"**: the tool stops and sends no unlock
   command. Do not keep trying. The drive's behavior after several wrong passwords is
   unknown.
