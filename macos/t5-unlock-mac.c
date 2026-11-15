@@ -550,9 +550,9 @@ static int do_probe(void) {
         session_t s = {u.ctx, u.h, 0, uas_run};
         uint8_t status[BLOCK] = {0};
         const char *problem = NULL;
-        if (!inquiry_is_t5(&s)) puts("INQUIRY did not identify a Samsung Portable SSD T5.");
-        else if (!read_log(&s, LOG_STATUS, status)) puts("Could not read the status block.");
-        else if ((problem = check_status(status))) printf("Status check failed: %s.\n", problem);
+        if (!inquiry_is_t5(&s)) fputs("INQUIRY did not identify a Samsung Portable SSD T5.\n", stderr);
+        else if (!read_log(&s, LOG_STATUS, status)) fputs("Could not read the status block.\n", stderr);
+        else if ((problem = check_status(status))) fprintf(stderr, "Status check failed: %s.\n", problem);
         else {
             puts("Status OK: PSSD, protocol version 0x00010103, hash scheme 0.");
             puts("Probe passed. The drive speaks the verified protocol. No password was sent.");

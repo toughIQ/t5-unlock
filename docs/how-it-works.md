@@ -27,7 +27,7 @@ and **SMART WRITE LOG** for vendor log pages, one 512-byte block each.
 
 | Step | Command | Log | Meaning |
 |---|---|---|---|
-| 0️⃣ | | | Unmount the setup volume (before any command is sent to the drive) |
+| 0️⃣ | | | Unmount the setup volume (before any password-related command) |
 | 1️⃣ | SMART READ LOG | `0xC8` | Status block. Must contain `PSSD` at offset 0x20, protocol version `0x00010103` (little endian at 0x24), and bit 0 of the byte at 0x28 clear. |
 | 2️⃣ | SMART READ LOG | `0xD7` | Challenge block from the drive |
 | 3️⃣ | SMART WRITE LOG | `0xD6` | Validate the password. No unlock yet. |
@@ -36,8 +36,10 @@ and **SMART WRITE LOG** for vendor log pages, one 512-byte block each.
 | 6️⃣ | SMART WRITE LOG | `0xCA` | Relink (all-zero block). The drive re-enumerates as the full disk. |
 
 An INQUIRY (standard SCSI identification) comes before step 1. The upstream project
-unmounts between steps 3 and 5; these tools unmount first, so the setup volume is never
-mounted while the drive is being talked to.
+unmounts between steps 3 and 5; these tools unmount before step 2, so the setup volume is
+never mounted while password-related commands are sent. The macOS tool unmounts before it
+sends anything at all. The Linux script first reads the identity and the status block
+(read-only, with the setup volume still mounted) and unmounts before the challenge.
 
 Before the password prompt, the Linux script already reads the identity and the status
 block. The macOS tool checks the USB ID and link speed before the prompt, and reads the

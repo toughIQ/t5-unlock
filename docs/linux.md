@@ -27,6 +27,18 @@ version). Only then does it ask for the password. It unmounts the setup volume, 
 the password, unlocks, sends the relink and waits for the full-size disk to appear, then
 shows it with `lsblk`. Mount it as usual afterwards.
 
+A normal run looks like this (device names and sizes differ):
+
+```text
+T5 DRIVE password (not your login or sudo password):
+Repeat the T5 DRIVE password:
+Unmounting /dev/sda1
+Password accepted by the drive.
+Unlock sent, then relink sent (a disconnect here is expected).
+Waiting for the drive to come back as the full-capacity disk ...
+Unlocked T5 appeared: /dev/sda, 931.5 GiB
+```
+
 ### 🔑 Which password is which
 
 1️⃣ **`sudo` asks for your own user password** (or run the script from a root shell).
@@ -57,6 +69,10 @@ means the drive did not receive any password data.
   the disk often goes to the host instead.
 - **"Password must be 1-32 bytes"**: spaces, umlauts and other non-ASCII characters
   (except Cyrillic) are not accepted. Nothing was sent.
+- **"Aborted. Nothing was sent."**: you pressed Ctrl-C before anything was sent.
+- **"Interrupted while talking to the drive"** or **"Interrupted. The unlock was already
+  sent"**: you pressed Ctrl-C during the conversation or while waiting. The drive may be
+  unlocked. Check with `lsblk` before you unplug it, because unplugging locks it again.
 
 The exit codes are the same as on macOS, see [docs/macos.md](macos.md#-exit-codes).
 

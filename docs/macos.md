@@ -73,6 +73,7 @@ means the drive did not receive any password data.
 
 - **"No Samsung Portable SSD T5 found"**: plug it in and wait until the `T5_SETUP`
   volume appears.
+- **"More than one T5 found"**: connect only one T5 while you use the tool.
 - **"Expected exactly one locked T5 on USB"** or **"A T5 was found but it is not in the
   verified locked state"**: the drive is not visible in its locked state. Unplug it, wait
   a few seconds, plug it back in, and wait for `T5_SETUP`.
@@ -101,7 +102,8 @@ means the drive did not receive any password data.
   the drive answered, but not like the verified drive. No password was sent. Please open a
   [verification report](https://github.com/toughIQ/t5-unlock/issues/new/choose).
 - **"Password must be 1-32 bytes"**: the drive password contains a space, an umlaut or
-  another character outside plain ASCII, or is longer than 32 characters. Nothing was
+  another character outside plain ASCII (Cyrillic letters are accepted), or is longer
+  than 32 characters. Nothing was
   sent.
 - **"The drive is unlocked, but no mounted volume was found"**: look in Finder first, an
   APFS volume can mount under another disk name. Otherwise click Allow if macOS asks to

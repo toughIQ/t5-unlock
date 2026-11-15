@@ -2,7 +2,8 @@
 
 ## 📌 Supported versions
 
-Only the latest commit on `main` is supported. There are no release branches.
+The latest release and the latest commit on `main` are supported. There are no release
+branches.
 
 ## 🚨 Reporting a problem
 
