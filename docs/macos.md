@@ -112,6 +112,12 @@ means the drive did not receive any password data.
   full disk will not appear by itself. Unplug and replug the drive (this locks it again)
   and unlock once more.
 - **"Interrupted"**: you pressed Ctrl-C. The message says whether anything was sent.
+- **"Stopped at once (second Ctrl-C)"**: the first Ctrl-C asks the tool to stop at a
+  safe point. A second one quits right away, even if the tool is stuck. If the unlock was
+  already sent, check Finder or Disk Utility before you unplug the drive.
+- **"USB cleanup did not finish in time. Skipped it."**: the tool stopped waiting for
+  macOS to release the USB connection, so it cannot hang there. Nothing else happens. If
+  the drive does not show up again, unplug it and plug it back in.
 - **Plain bulk-only mode timed out in testing.** The tool uses UAS only.
 
 ## 🔢 Exit codes

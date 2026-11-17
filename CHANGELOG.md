@@ -3,6 +3,17 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## 🚧 [Unreleased]
+
+### 🔧 Fixed
+
+- 🍎 macOS: the tool could hang forever after "Relink gave no clean reply", even though
+  the drive was already unlocked, and Ctrl-C did not stop it. The USB cleanup after the
+  relink talks to a device that has just disconnected, and that cleanup could block. It
+  now runs with a deadline (5 seconds after an unlock, 20 seconds after a probe), and the
+  tool goes on to wait for the unlocked disk.
+- 🍎 macOS: a second Ctrl-C now quits at once, so a stuck step can always be stopped.
+
 ## 🚀 [0.1.0] - 2026-11-15
 
 First public version.
