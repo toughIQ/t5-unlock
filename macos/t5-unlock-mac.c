@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <libusb.h>
+#include <pthread.h>
 #include <readpassphrase.h>
 #include <signal.h>
 #include <spawn.h>
@@ -64,7 +65,20 @@ extern char **environ;
 #define EP_DATA_OUT 0x02
 
 static volatile sig_atomic_t interrupted;
-static void on_signal(int sig) { (void)sig; interrupted = 1; }
+
+/* The first Ctrl-C asks the current step to stop at a safe point. A second one quits at once, so a
+ * system call that never returns cannot trap the user. */
+static void on_signal(int sig) {
+    (void)sig;
+    if (interrupted) {
+        static const char msg[] = "\nStopped at once (second Ctrl-C). If the unlock was already sent, check Finder or "
+                                  "Disk Utility before you unplug the drive.\n";
+        ssize_t w = write(STDERR_FILENO, msg, sizeof msg - 1);
+        (void)w;
+        _exit(130);
+    }
+    interrupted = 1;
+}
 
 static void zero(void *p, size_t n) { volatile uint8_t *b = p; while (n--) *b++ = 0; }
 static void die(const char *msg, int code) { fprintf(stderr, "%s\n", msg); exit(code); }
@@ -497,6 +511,87 @@ static void usb_close(usb_t *u) {
     memset(u, 0, sizeof *u);
 }
 
+/* ---------- bounded cleanup ---------- */
+
+/* The libusb cleanup talks to the device and to the macOS USB stack. After the relink the device
+ * has gone away and this cleanup was seen to block forever, ignoring Ctrl-C. So it runs on its own
+ * thread and the tool stops waiting for it after a deadline. Whichever side lets go last frees the
+ * shared state. */
+typedef struct {
+    void (*fn)(void *);
+    void *arg;
+    pthread_mutex_t m;
+    pthread_cond_t c;
+    int done, refs;
+} bounded_t;
+
+static int cleanup_abandoned; /* a cleanup thread may still be running, so do not wait at exit */
+
+static void bounded_unref(bounded_t *b) {
+    pthread_mutex_lock(&b->m);
+    int last = --b->refs == 0;
+    pthread_mutex_unlock(&b->m);
+    if (!last) return;
+    pthread_cond_destroy(&b->c);
+    pthread_mutex_destroy(&b->m);
+    free(b);
+}
+
+static void *bounded_thread(void *p) {
+    bounded_t *b = p;
+    b->fn(b->arg);
+    pthread_mutex_lock(&b->m);
+    b->done = 1;
+    pthread_cond_signal(&b->c);
+    pthread_mutex_unlock(&b->m);
+    bounded_unref(b);
+    return NULL;
+}
+
+/* Returns 1 when fn finished within ms milliseconds. Returns 0 when it is still running (it is left
+ * behind) or could not be started (then it never runs). */
+static int run_bounded(void (*fn)(void *), void *arg, long ms) {
+    bounded_t *b = calloc(1, sizeof *b);
+    if (!b) return 0;
+    b->fn = fn;
+    b->arg = arg;
+    b->refs = 2;
+    if (pthread_mutex_init(&b->m, NULL) != 0) { free(b); return 0; }
+    if (pthread_cond_init(&b->c, NULL) != 0) { pthread_mutex_destroy(&b->m); free(b); return 0; }
+    sigset_t all, old;
+    sigfillset(&all);
+    pthread_sigmask(SIG_SETMASK, &all, &old); /* Ctrl-C goes to the main thread */
+    pthread_t t;
+    int started = pthread_create(&t, NULL, bounded_thread, b) == 0;
+    pthread_sigmask(SIG_SETMASK, &old, NULL);
+    if (!started) { b->refs = 1; bounded_unref(b); return 0; }
+    pthread_detach(t);
+    struct timespec until;
+    clock_gettime(CLOCK_REALTIME, &until);
+    until.tv_sec += ms / 1000;
+    until.tv_nsec += (ms % 1000) * 1000000L;
+    if (until.tv_nsec >= 1000000000L) { until.tv_sec++; until.tv_nsec -= 1000000000L; }
+    pthread_mutex_lock(&b->m);
+    while (!b->done && pthread_cond_timedwait(&b->c, &b->m, &until) != ETIMEDOUT) {}
+    int done = b->done;
+    pthread_mutex_unlock(&b->m);
+    bounded_unref(b);
+    if (!done) cleanup_abandoned = 1;
+    return done;
+}
+
+static void usb_close_owned(void *p) { usb_close(p); free(p); }
+static void usb_give_back_owned(void *p) { usb_back_to_bulk_only(p); usb_close(p); free(p); }
+
+/* Moves u to a cleanup thread (give_back: probe hand-back first). Returns 1 when it finished in time. */
+static int usb_close_bounded(usb_t *u, int give_back, long ms) {
+    usb_t *own = malloc(sizeof *own);
+    if (!own) { memset(u, 0, sizeof *u); return 0; }
+    *own = *u;
+    memset(u, 0, sizeof *u);
+    return run_bounded(give_back ? usb_give_back_owned : usb_close_owned, own, ms);
+}
+
 /* ---------- modes ---------- */
 
 static dev_info require_locked(void) {
@@ -560,8 +655,8 @@ static int do_probe(void) {
         }
     }
     int captured = u.captured;
-    usb_back_to_bulk_only(&u);
-    usb_close(&u);
+    /* The hand-back can wait up to 10 s inside libusb for the re-enumeration, so allow more. */
+    if (!usb_close_bounded(&u, 1, 20000)) fputs("USB cleanup did not finish in time. Skipped it.\n", stderr);
     if (captured) report_if_dropped(15);
     return rc;
 }
@@ -691,8 +786,10 @@ static int do_unlock(void) {
     }
     zero(pw, sizeof pw);
     int captured = u.captured;
-    usb_close(&u);
+    /* After the relink the device is gone, so a cleanup that does not finish is expected and not reported. */
+    int closed = usb_close_bounded(&u, 0, 5000);
     if (!sent_unlock) {
+        if (!closed) fputs("USB cleanup did not finish in time. Skipped it.\n", stderr);
         if (captured) report_if_dropped(5);
         return rc;
     }
@@ -921,6 +1018,38 @@ static void status_iu_tests(void) {
     check(!parse_status_iu(st, 81, 1, &r) && r.scsi_status == 0xff, "status IU: oversized sense refused");
 }
 
+/* Runs in a child, before any cleanup thread exists. */
+static void signal_tests(void) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) dup2(devnull, STDERR_FILENO);
+        interrupted = 0;
+        on_signal(SIGINT);
+        if (!interrupted) _exit(1);
+        on_signal(SIGINT);
+        _exit(0);
+    }
+    int status = 0;
+    check(pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 130,
+          "signal: first Ctrl-C only flags, the second one exits at once with 130");
+}
+
+static void cleanup_quick(void *p) { *(int *)p = 1; }
+static void cleanup_stuck(void *p) {
+    (void)p;
+    for (;;) pause();
+}
+
+static void cleanup_tests(void) {
+    int ran = 0;
+    check(run_bounded(cleanup_quick, &ran, 2000) && ran == 1 && !cleanup_abandoned, "cleanup: quick cleanup runs and is reported done");
+    double start = now_s();
+    check(!run_bounded(cleanup_stuck, NULL, 200) && cleanup_abandoned, "cleanup: stuck cleanup is reported as not done");
+    check(now_s() - start < 2.0, "cleanup: stuck cleanup does not block the caller");
+    cleanup_abandoned = 0;
+}
+
 static int do_selftest(void) {
     uint8_t ch[BLOCK], chr[BLOCK], out[BLOCK];
     char hex[65];
@@ -1002,9 +1131,12 @@ static int do_selftest(void) {
     check(!mount_is_on_disk("map auto_home", "disk4"), "mount: non-device mount does not match");
 
     safety_tests();
+    signal_tests();
+    cleanup_tests();
 
     if (fails) { printf("%d check(s) failed.\n", fails); return 1; }
-    puts("PASS: hash vectors, challenge fields, password guards, status, CDBs, sense parsing, status IU, mount matching, mock-drive safety rules");
+    puts("PASS: hash vectors, challenge fields, password guards, status, CDBs, sense parsing, status IU, mount matching, mock-drive safety rules, "
+         "Ctrl-C, bounded cleanup");
     return 0;
 }
 
@@ -1043,5 +1175,10 @@ int main(int argc, char **argv) {
     if (setrlimit(RLIMIT_CORE, &no_core) != 0) die("Cannot disable core dumps. Nothing was asked or sent.", 2);
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
-    return probe ? do_probe() : do_unlock();
+    int rc = probe ? do_probe() : do_unlock();
+    if (cleanup_abandoned) {
+        fflush(NULL);
+        _exit(rc);
+    }
+    return rc;
 }
